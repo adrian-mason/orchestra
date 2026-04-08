@@ -1,0 +1,10 @@
+# Cloned reference repos (not our code)
+research/cao/
+research/composio/
+research/metaswarm/
+research/overstory/
+research/ccw/
+research/conductor/
+
+# Editor
+.projectile
