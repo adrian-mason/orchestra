@@ -247,6 +247,8 @@ def validate_no_overlap(
             for existing_pattern, existing_wu_id in all_patterns.items():
                 if existing_wu_id == wu.id:
                     continue  # skip intra-unit comparisons
+                if existing_pattern == pattern:
+                    continue  # exact duplicate already reported above
                 if _patterns_overlap(pattern, existing_pattern):
                     _report(
                         f"Patterns overlap: '{existing_pattern}' ({existing_wu_id}) "

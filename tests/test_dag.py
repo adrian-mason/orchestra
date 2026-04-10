@@ -300,6 +300,19 @@ class TestValidateNoOverlapWarningMode:
         assert len(w) >= 1
         assert issubclass(w[0].category, UserWarning)
 
+    def test_exact_duplicate_warned_once(self):
+        """Exact duplicate pattern produces one warning, not two."""
+        units = [
+            _wu("a", files=["src/auth/*.py"]),
+            _wu("b", files=["src/auth/*.py"]),
+        ]
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            result = validate_no_overlap(units, strict=False)
+        assert len(result) == 1
+        assert "claimed by both" in result[0]
+        assert len(w) == 1
+
     def test_warning_mode_collects_all_overlaps(self):
         """strict=False collects multiple overlaps instead of stopping at first."""
         units = [
