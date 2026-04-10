@@ -66,7 +66,7 @@ class TestOpenAIKeys:
 
 class TestGoogleKeys:
     def test_redacts_google_key(self) -> None:
-        text = "api_key=AIzaSyA1234567890abcdefghijklmnopqrstuv"
+        text = "api_key=" + "AIzaSyA" + "1234567890abcdefghijklmnopqrstuv"
         result = sanitize(text)
         assert "1234567890" not in result
         assert "[REDACTED_GOOGLE_KEY]" in result
