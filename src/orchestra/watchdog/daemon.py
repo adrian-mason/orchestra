@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Protocol
 
 from orchestra.observability.logger import SessionLogger
@@ -47,6 +48,7 @@ class MonitoredAgent:
     agent_name: str
     current_run_id: str | None = None
     escalation_level: int = 0
+    registered_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 @dataclass
@@ -243,17 +245,25 @@ class WatchdogDaemon:
                         action_record["action"] = "stuck_deferred"
 
             case ActivityState.EXITED:
-                # Process exited — log error and auto-unregister
-                self._log(
-                    "ERROR",
-                    "agent_exited",
-                    agent_id=agent.agent_id,
-                    agent_name=agent.agent_name,
-                )
-                if self._on_agent_exited:
-                    self._on_agent_exited(agent.agent_id, agent.agent_name)
-                self.unregister_agent(agent.agent_id)
-                action_record["action"] = "exited"
+                # Startup grace period: newly registered agents may not
+                # have emitted their first event yet. Treat as READY
+                # for one check interval to avoid false EXITED.
+                age = (datetime.now(timezone.utc) - agent.registered_at).total_seconds()
+                if age < self.check_interval_sec:
+                    action_record["state"] = "ready"
+                    action_record["action"] = "startup_grace"
+                else:
+                    # Genuinely exited — log error and auto-unregister
+                    self._log(
+                        "ERROR",
+                        "agent_exited",
+                        agent_id=agent.agent_id,
+                        agent_name=agent.agent_name,
+                    )
+                    if self._on_agent_exited:
+                        self._on_agent_exited(agent.agent_id, agent.agent_name)
+                    self.unregister_agent(agent.agent_id)
+                    action_record["action"] = "exited"
 
         return action_record
 

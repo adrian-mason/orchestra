@@ -269,10 +269,19 @@ class TestExpiredGateReaping:
 
 
 class TestAgentExit:
+    """Tests for genuinely exited agents (past startup grace period)."""
+
+    def _register_past_grace(self, daemon, agent_id: str, agent_name: str) -> None:
+        """Register an agent and backdate registered_at past the grace period."""
+        daemon.register_agent(agent_id, agent_name)
+        daemon._agents[agent_id].registered_at = (
+            datetime.now(timezone.utc) - timedelta(seconds=daemon.check_interval_sec + 1)
+        )
+
     def test_exited_agent_triggers_callback(self, daemon, events_db) -> None:
         exited = []
         daemon.set_on_agent_exited(lambda aid, name: exited.append((aid, name)))
-        daemon.register_agent("ghost", "Ghost Agent")
+        self._register_past_grace(daemon, "ghost", "Ghost Agent")
 
         actions = daemon.run_once()
         exit_action = [a for a in actions if a["agent_id"] == "ghost"][0]
@@ -282,22 +291,60 @@ class TestAgentExit:
         assert exited == [("ghost", "Ghost Agent")]
 
     def test_exited_without_callback_no_error(self, daemon) -> None:
-        daemon.register_agent("ghost", "Ghost Agent")
+        self._register_past_grace(daemon, "ghost", "Ghost Agent")
         actions = daemon.run_once()
         assert actions[0]["action"] == "exited"
 
     def test_exited_agent_auto_unregistered(self, daemon) -> None:
         """EXITED agents are auto-unregistered to prevent log spam."""
-        daemon.register_agent("ghost", "Ghost Agent")
+        self._register_past_grace(daemon, "ghost", "Ghost Agent")
         daemon.run_once()
         assert "ghost" not in daemon.monitored_agents
 
     def test_exited_agent_not_logged_on_subsequent_cycles(self, daemon) -> None:
         """After auto-unregister, exited agent produces no further actions."""
-        daemon.register_agent("ghost", "Ghost Agent")
+        self._register_past_grace(daemon, "ghost", "Ghost Agent")
         daemon.run_once()
         actions = daemon.run_once()
         assert len(actions) == 0
+
+
+# ---------------------------------------------------------------------------
+# Startup grace period
+# ---------------------------------------------------------------------------
+
+
+class TestStartupGrace:
+    """Newly registered agents with no events get grace period, not EXITED."""
+
+    def test_new_agent_no_events_gets_grace(self, daemon) -> None:
+        """Agent registered just now with no events → startup_grace, not exited."""
+        daemon.register_agent("new-agent", "New Agent")
+        actions = daemon.run_once()
+        action = actions[0]
+
+        assert action["state"] == "ready"
+        assert action["action"] == "startup_grace"
+        assert "new-agent" in daemon.monitored_agents
+
+    def test_grace_expires_then_exited(self, daemon) -> None:
+        """After grace period, agent with no events → exited."""
+        daemon.register_agent("new-agent", "New Agent")
+        # Backdate past grace
+        daemon._agents["new-agent"].registered_at = (
+            datetime.now(timezone.utc) - timedelta(seconds=daemon.check_interval_sec + 1)
+        )
+        actions = daemon.run_once()
+        assert actions[0]["action"] == "exited"
+        assert "new-agent" not in daemon.monitored_agents
+
+    def test_agent_emits_event_during_grace_becomes_active(self, daemon, events_db) -> None:
+        """Agent that emits an event during grace → normal state, not exited."""
+        daemon.register_agent("new-agent", "New Agent")
+        _insert_event(events_db, "new-agent", "tool_start", datetime.now(timezone.utc))
+        actions = daemon.run_once()
+        assert actions[0]["action"] == "reset"
+        assert actions[0]["state"] == "active"
 
 
 # ---------------------------------------------------------------------------
@@ -341,8 +388,9 @@ class TestMultiAgent:
         _insert_pending_gate(events_db, "c")
         daemon.register_agent("c", "Gated")
 
-        # Agent D: exited
+        # Agent D: exited (backdate past grace period)
         daemon.register_agent("d", "Gone")
+        daemon._agents["d"].registered_at = now - timedelta(minutes=1)
 
         actions = daemon.run_once()
         by_id = {a["agent_id"]: a for a in actions}
