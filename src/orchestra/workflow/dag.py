@@ -8,6 +8,7 @@ Implements three concerns from DESIGN.md:
 
 from __future__ import annotations
 
+import warnings
 from collections import defaultdict, deque
 from fnmatch import fnmatch
 from glob import glob
@@ -202,7 +203,11 @@ def _is_glob_segment(s: str) -> bool:
     return "*" in s or "?" in s
 
 
-def validate_no_overlap(work_units: list[WorkUnit]) -> None:
+def validate_no_overlap(
+    work_units: list[WorkUnit],
+    *,
+    strict: bool = True,
+) -> list[str]:
     """Ensure WorkUnit file scopes do not overlap.
 
     Two-layer check per DESIGN.md \u00a76:
@@ -211,14 +216,31 @@ def validate_no_overlap(work_units: list[WorkUnit]) -> None:
     2. File-level: globs patterns against the filesystem to catch cases where
        different patterns resolve to the same file.
 
-    Raises ``FileOverlapError`` on the first detected overlap.
+    Args:
+        work_units: WorkUnits to check for file scope overlap.
+        strict: If True (default), raises ``FileOverlapError`` on the first
+            detected overlap. If False, collects all overlaps, emits a
+            ``UserWarning`` for each, and returns the list of messages.
+
+    Returns:
+        List of overlap warning messages (empty if no overlaps detected).
+        Only populated when ``strict=False``; in strict mode the function
+        raises before returning.
     """
+    overlap_messages: list[str] = []
+
+    def _report(msg: str) -> None:
+        if strict:
+            raise FileOverlapError(msg)
+        overlap_messages.append(msg)
+        warnings.warn(msg, UserWarning, stacklevel=3)
+
     # Layer 1: pattern-level deduplication (inter-unit only per DESIGN §2.4)
     all_patterns: dict[str, str] = {}  # pattern -> wu.id
     for wu in work_units:
         for pattern in wu.file_scope:
             if pattern in all_patterns and all_patterns[pattern] != wu.id:
-                raise FileOverlapError(
+                _report(
                     f"Pattern '{pattern}' claimed by both "
                     f"{all_patterns[pattern]} and {wu.id}"
                 )
@@ -226,7 +248,7 @@ def validate_no_overlap(work_units: list[WorkUnit]) -> None:
                 if existing_wu_id == wu.id:
                     continue  # skip intra-unit comparisons
                 if _patterns_overlap(pattern, existing_pattern):
-                    raise FileOverlapError(
+                    _report(
                         f"Patterns overlap: '{existing_pattern}' ({existing_wu_id}) "
                         f"vs '{pattern}' ({wu.id})"
                     )
@@ -238,8 +260,10 @@ def validate_no_overlap(work_units: list[WorkUnit]) -> None:
         for pattern in wu.file_scope:
             for f in glob(pattern):
                 if f in all_files and all_files[f] != wu.id:
-                    raise FileOverlapError(
+                    _report(
                         f"File '{f}' matched by both "
                         f"{all_files[f]} and {wu.id}"
                     )
                 all_files[f] = wu.id
+
+    return overlap_messages
