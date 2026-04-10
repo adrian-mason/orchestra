@@ -1,6 +1,7 @@
-"""Agent definitions and role management (P1-01, DESIGN.md §3.1).
+"""Agent definitions, role management, and callable factory (P1-01/P1-02).
 
-Re-exports core agent types and the role registry for convenient access.
+Re-exports core agent types, the role registry, and the callable factory
+for dynamic role loading.
 """
 
 from orchestra.agents.definitions import (
@@ -11,12 +12,24 @@ from orchestra.agents.definitions import (
     get_role_config,
     list_roles,
 )
+from orchestra.agents.factory import (
+    DEFAULT_TAG_MAPPINGS,
+    SpecialistMapping,
+    create_member_factory,
+    list_available_tags,
+    resolve_design_members,
+)
 
 __all__ = [
+    "DEFAULT_TAG_MAPPINGS",
     "ROLE_REGISTRY",
     "AgentRole",
     "RoleConfig",
+    "SpecialistMapping",
     "create_agent",
+    "create_member_factory",
     "get_role_config",
+    "list_available_tags",
     "list_roles",
+    "resolve_design_members",
 ]
