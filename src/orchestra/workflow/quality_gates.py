@@ -45,6 +45,10 @@ class QualityGateResult:
     results: list[GateResult]
     summary: str
 
+    def __bool__(self) -> bool:
+        """Allow truthiness checks: ``if not run_quality_gates(...): retry``."""
+        return self.passed
+
 
 @dataclass(frozen=True)
 class GateConfig:

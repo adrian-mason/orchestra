@@ -221,3 +221,18 @@ class TestRunQualityGates:
         gates = [GateConfig(name="g1", command="echo ok")]
         result = run_quality_gates(work_unit={"id": "wu-1"}, gates=gates)
         assert result.passed is True
+
+    def test_bool_truthy_when_passed(self):
+        """QualityGateResult is truthy when all gates pass."""
+        gates = [GateConfig(name="g1", command="echo ok")]
+        result = run_quality_gates(gates=gates)
+        assert bool(result) is True
+        assert result  # ``if run_quality_gates(...):`` works
+
+    def test_bool_falsy_when_failed(self):
+        """QualityGateResult is falsy when any gate fails.
+        Ensures ``if not run_quality_gates(...): retry`` works correctly."""
+        gates = [GateConfig(name="g1", command="exit 1")]
+        result = run_quality_gates(gates=gates)
+        assert bool(result) is False
+        assert not result  # ``if not run_quality_gates(...):`` works
