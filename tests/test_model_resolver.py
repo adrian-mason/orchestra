@@ -12,6 +12,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from orchestra.model_resolver import (
+    ADVERSARIAL_REVIEW_RUBRIC,
     HARDCODED_FALLBACK,
     ModelsConfig,
     ProjectConfig,
@@ -585,3 +586,21 @@ class TestCreateFreshAdversarialReviewers:
             reviewers = create_fresh_adversarial_reviewers("llama-3-unknown")
 
         assert len(reviewers) == 2
+
+    def test_reviewers_carry_adversarial_instructions(self) -> None:
+        """DESIGN.md §4.7: fresh reviewers must have adversarial review rubric."""
+        mock_instantiate = MagicMock(side_effect=lambda mid: MagicMock(name=f"model-{mid}"))
+        mock_agent = MagicMock(side_effect=lambda **kw: MagicMock(**kw))
+
+        with patch("orchestra.model_resolver.instantiate_model", mock_instantiate), \
+             patch("agno.agent.Agent", mock_agent):
+            create_fresh_adversarial_reviewers("claude-sonnet-4-6")
+
+        for call in mock_agent.call_args_list:
+            assert "instructions" in call.kwargs
+            instructions = call.kwargs["instructions"]
+            assert isinstance(instructions, list)
+            assert len(instructions) == 1
+            assert instructions[0] == ADVERSARIAL_REVIEW_RUBRIC
+            assert "adversarial" in instructions[0].lower()
+            assert "AC-01" in instructions[0]

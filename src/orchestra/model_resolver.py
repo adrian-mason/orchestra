@@ -217,11 +217,23 @@ def instantiate_model(model_id: str) -> Model:
     return cls(id=actual_id)
 
 
+ADVERSARIAL_REVIEW_RUBRIC = (
+    "You are an adversarial code reviewer. Your role is to find defects, "
+    "security vulnerabilities, design violations, and correctness issues. "
+    "You must review code from a different model provider than the implementer "
+    "to ensure diverse perspectives. Be thorough and critical — flag any "
+    "deviation from the design specification, missing error handling, "
+    "untested edge cases, or potential regressions. Never approve code "
+    "that violates architectural constraints (AC-01 through AC-07)."
+)
+
+
 def create_fresh_adversarial_reviewers(implementer_model_id: str) -> list[Agent]:
     """Create two stateless reviewer instances from the cross-model review matrix.
 
-    DESIGN.md §3.3 — reviewers use different providers than the implementer.
+    DESIGN.md §3.3 + §4.7 — reviewers use different providers than the implementer.
     Fresh reviewers have no session_id and no learning (completely stateless).
+    Each reviewer carries adversarial review instructions per §4.7.
     Model selection is driven entirely by the review matrix, not resolve_model().
     """
     from agno.agent import Agent
@@ -231,6 +243,7 @@ def create_fresh_adversarial_reviewers(implementer_model_id: str) -> list[Agent]
         Agent(
             name=f"AdversarialReviewer{i + 1}-{uuid4().hex[:8]}",
             model=instantiate_model(model_id),
+            instructions=[ADVERSARIAL_REVIEW_RUBRIC],
             # No session_id, no learning — completely stateless
         )
         for i, model_id in enumerate(reviewer_model_ids)
