@@ -178,9 +178,10 @@ def resolve_design_members(
             project=project,
             extra_instructions=mapping.extra_instructions,
         )
-        # Override name and role for the specific specialist domain
+        # Override name, role, and description for the specific specialist domain
         specialist_cfg["name"] = mapping.name
         specialist_cfg["role"] = mapping.role_description
+        specialist_cfg["description"] = mapping.role_description
         members.append(specialist_cfg)
 
     return members
