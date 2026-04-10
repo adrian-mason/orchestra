@@ -165,7 +165,7 @@ Parent Issue: "Phase 0: Foundation Infrastructure"
 
 | ID | Title | Priority | Area | Exit Criteria |
 |----|-------|----------|------|---------------|
-| **P1-01** | Agent 定义（5 核心角色） | P0-critical | area/agents | Scout / Architect / Specialist / Critic / Challenger / Implementer 可实例化并响应 |
+| **P1-01** | Agent 定义（5 核心角色） | P0-critical | area/agents | Scout / Architect / Specialist / Plan Critic / Design Expert / Implementer 可实例化并响应 |
 | **P1-02** | Callable Factory 动态角色加载 | P1-high | area/agents | `resolve_design_members()` 按 project_tags 动态加载 Specialist |
 | **P1-03** | Design Team (coordinate) | P0-critical | area/agents | TeamMode.coordinate 运行，Architect 分配子任务给 Specialist，产出 `final_design.md` |
 | **P1-04** | Plan Review Gate | P0-critical | area/review-gate | broadcast 3 对抗审查者，ALL PASS，Max 3 轮 + Decision Gate 升级 |

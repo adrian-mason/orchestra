@@ -2152,7 +2152,7 @@ dev_workflow.print_response("What issues did Critic find?")
 
 ### Phase 1: Core Workflow（核心工作流）
 
-- [ ] Agent 定义：Architect / Specialist / Critic / Challenger / Implementer
+- [ ] Agent 定义：Architect / Specialist / Plan Critic / Design Expert / Implementer
 - [ ] Callable Factory 动态角色加载
 - [ ] Design Team（TeamMode.coordinate）
 - [ ] Plan Review Gate（TeamMode.broadcast，3 对抗审查者，ALL PASS，3 轮 + Decision Gate 升级）
