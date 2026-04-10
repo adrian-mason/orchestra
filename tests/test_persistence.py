@@ -366,3 +366,50 @@ class TestWalConcurrencySemantics:
             conn.commit()
         with dbs.events.db_engine.connect() as conn:
             assert conn.execute(text("SELECT COUNT(*) FROM events")).scalar() == 2
+
+    def test_overlapping_writers_raise_lock_error(self, db_dir):
+        """Overlapping writers may raise 'database is locked'.
+
+        This is SQLite's fundamental limitation under WAL: concurrent readers
+        are fine, but a second writer while another holds an uncommitted write
+        transaction will block until busy_timeout expires, then raise
+        OperationalError. Upper layers (P0-03, Phase 1) must handle this.
+        """
+        from sqlalchemy import create_engine
+
+        db_dir.mkdir(parents=True, exist_ok=True)
+        db_path = db_dir / "contention.db"
+        # Use raw engines with minimal busy_timeout to trigger lock quickly
+        engine_a = create_engine(
+            f"sqlite:///{db_path}",
+            connect_args={"timeout": 0.1},
+        )
+        engine_b = create_engine(
+            f"sqlite:///{db_path}",
+            connect_args={"timeout": 0.1},
+        )
+        # Enable WAL + create table
+        with engine_a.connect() as conn:
+            conn.execute(text("PRAGMA journal_mode=WAL"))
+            conn.execute(
+                text(
+                    "CREATE TABLE IF NOT EXISTS t "
+                    "(id INTEGER PRIMARY KEY, v TEXT)"
+                )
+            )
+            conn.commit()
+
+        conn_a = engine_a.connect()
+        conn_b = engine_b.connect()
+        try:
+            # Writer A starts a write transaction (not yet committed)
+            conn_a.execute(text("INSERT INTO t (v) VALUES ('a')"))
+
+            # Writer B attempts to write while A holds uncommitted transaction
+            with pytest.raises(Exception, match="database is locked"):
+                conn_b.execute(text("INSERT INTO t (v) VALUES ('b')"))
+        finally:
+            conn_a.close()
+            conn_b.close()
+            engine_a.dispose()
+            engine_b.dispose()
