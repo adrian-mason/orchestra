@@ -7,14 +7,19 @@ from __future__ import annotations
 
 import tempfile
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from orchestra.model_resolver import (
+    ADVERSARIAL_REVIEW_RUBRIC,
     HARDCODED_FALLBACK,
     ModelsConfig,
     ProjectConfig,
+    _MODEL_REGISTRY,
+    create_fresh_adversarial_reviewers,
     get_provider,
+    instantiate_model,
     resolve_adversarial_reviewer,
     resolve_model,
 )
@@ -415,3 +420,187 @@ def test_adversarial_reviewer_unknown_provider_fallback():
     """Unknown provider gets anthropic's matrix (safe default)."""
     reviewers = resolve_adversarial_reviewer("llama-3")
     assert len(reviewers) == 2
+
+
+# ── instantiate_model ──
+
+
+class TestInstantiateModel:
+    """P1-06: Model instantiation from registry."""
+
+    def test_unknown_model_raises(self) -> None:
+        with pytest.raises(ValueError, match="Unknown model ID"):
+            instantiate_model("nonexistent-model-9000")
+
+    def test_all_registry_entries_have_valid_structure(self) -> None:
+        for model_id, entry in _MODEL_REGISTRY.items():
+            assert len(entry) == 3, f"{model_id}: registry entry must be (module, class, id)"
+            module_path, class_name, actual_id = entry
+            assert isinstance(module_path, str)
+            assert isinstance(class_name, str)
+            assert isinstance(actual_id, str)
+
+    def test_registry_covers_all_review_matrix_models(self) -> None:
+        """Every model referenced in the review matrix must be in the registry."""
+        matrix_models = {"gemini-pro", "claude-sonnet-4-6", "codex-gpt-5.3"}
+        for model_id in matrix_models:
+            assert model_id in _MODEL_REGISTRY, f"{model_id} missing from _MODEL_REGISTRY"
+
+    def test_instantiate_calls_correct_class(self) -> None:
+        """Verify instantiate_model imports the right module and calls the right class."""
+        mock_cls = MagicMock()
+        mock_module = MagicMock()
+        mock_module.Claude = mock_cls
+
+        with patch("importlib.import_module", return_value=mock_module) as mock_import:
+            result = instantiate_model("claude-sonnet-4-6")
+
+        mock_import.assert_called_once_with("agno.models.anthropic")
+        mock_cls.assert_called_once_with(id="claude-sonnet-4-6")
+        assert result == mock_cls.return_value
+
+    def test_instantiate_gemini(self) -> None:
+        mock_cls = MagicMock()
+        mock_module = MagicMock()
+        mock_module.Gemini = mock_cls
+
+        with patch("importlib.import_module", return_value=mock_module):
+            result = instantiate_model("gemini-pro")
+
+        mock_cls.assert_called_once_with(id="gemini-2.5-pro")
+        assert result == mock_cls.return_value
+
+    def test_instantiate_openai(self) -> None:
+        mock_cls = MagicMock()
+        mock_module = MagicMock()
+        mock_module.OpenAIChat = mock_cls
+
+        with patch("importlib.import_module", return_value=mock_module):
+            result = instantiate_model("codex-gpt-5.3")
+
+        mock_cls.assert_called_once_with(id="codex-gpt-5.3")
+        assert result == mock_cls.return_value
+
+
+# ── create_fresh_adversarial_reviewers ──
+
+
+class TestCreateFreshAdversarialReviewers:
+    """P1-06: Fresh reviewer instances are stateless and cross-model."""
+
+    @patch("orchestra.model_resolver.instantiate_model")
+    @patch("orchestra.model_resolver.Agent")
+    def _make_reviewers(self, implementer: str, mock_agent_cls: MagicMock,
+                        mock_instantiate: MagicMock) -> tuple[list, MagicMock, MagicMock]:
+        """Helper: create reviewers with mocked Agent and instantiate_model."""
+        mock_instantiate.side_effect = lambda mid: MagicMock(name=f"model-{mid}")
+        mock_agent_cls.side_effect = lambda **kw: MagicMock(**kw)
+
+        # Patch the import inside the function
+        with patch.dict("sys.modules", {"agno.agent": MagicMock(Agent=mock_agent_cls)}):
+            reviewers = create_fresh_adversarial_reviewers(implementer)
+        return reviewers, mock_agent_cls, mock_instantiate
+
+    def test_returns_two_reviewers_for_anthropic(self) -> None:
+        mock_instantiate = MagicMock(side_effect=lambda mid: MagicMock(name=f"model-{mid}"))
+        mock_agent = MagicMock()
+
+        with patch("orchestra.model_resolver.instantiate_model", mock_instantiate), \
+             patch("orchestra.model_resolver.Agent", mock_agent, create=True):
+            # Need to re-import the function to use the module-level mock
+            from orchestra.model_resolver import create_fresh_adversarial_reviewers as create_fn
+            with patch("agno.agent.Agent", mock_agent):
+                reviewers = create_fn("claude-sonnet-4-6")
+
+        assert len(reviewers) == 2
+
+    def test_returns_two_reviewers_for_openai(self) -> None:
+        mock_instantiate = MagicMock(side_effect=lambda mid: MagicMock(name=f"model-{mid}"))
+        mock_agent = MagicMock()
+
+        with patch("orchestra.model_resolver.instantiate_model", mock_instantiate), \
+             patch("agno.agent.Agent", mock_agent):
+            reviewers = create_fresh_adversarial_reviewers("codex-gpt-5.3")
+
+        assert len(reviewers) == 2
+
+    def test_returns_two_reviewers_for_google(self) -> None:
+        mock_instantiate = MagicMock(side_effect=lambda mid: MagicMock(name=f"model-{mid}"))
+        mock_agent = MagicMock()
+
+        with patch("orchestra.model_resolver.instantiate_model", mock_instantiate), \
+             patch("agno.agent.Agent", mock_agent):
+            reviewers = create_fresh_adversarial_reviewers("gemini-pro")
+
+        assert len(reviewers) == 2
+
+    def test_reviewers_have_unique_names(self) -> None:
+        mock_instantiate = MagicMock(side_effect=lambda mid: MagicMock(name=f"model-{mid}"))
+        mock_agent = MagicMock(side_effect=lambda **kw: MagicMock(**kw))
+
+        with patch("orchestra.model_resolver.instantiate_model", mock_instantiate), \
+             patch("agno.agent.Agent", mock_agent):
+            reviewers = create_fresh_adversarial_reviewers("claude-sonnet-4-6")
+
+        names = [call.kwargs["name"] for call in mock_agent.call_args_list]
+        assert len(set(names)) == 2  # unique
+        assert all("AdversarialReviewer" in n for n in names)
+        assert any("AdversarialReviewer1-" in n for n in names)
+        assert any("AdversarialReviewer2-" in n for n in names)
+
+    def test_reviewers_are_stateless_no_session_id(self) -> None:
+        """Fresh reviewers must not have session_id or learning — DESIGN.md §3.3."""
+        mock_instantiate = MagicMock(side_effect=lambda mid: MagicMock(name=f"model-{mid}"))
+        mock_agent = MagicMock(side_effect=lambda **kw: MagicMock(**kw))
+
+        with patch("orchestra.model_resolver.instantiate_model", mock_instantiate), \
+             patch("agno.agent.Agent", mock_agent):
+            create_fresh_adversarial_reviewers("claude-sonnet-4-6")
+
+        for call in mock_agent.call_args_list:
+            # session_id must NOT be passed
+            assert "session_id" not in call.kwargs
+            # learning must NOT be passed
+            assert "learning" not in call.kwargs
+
+    def test_reviewers_use_cross_model_providers(self) -> None:
+        """Reviewer models must be from different providers than implementer."""
+        instantiated_ids: list[str] = []
+        mock_instantiate = MagicMock(side_effect=lambda mid: (instantiated_ids.append(mid) or MagicMock()))
+        mock_agent = MagicMock(side_effect=lambda **kw: MagicMock(**kw))
+
+        with patch("orchestra.model_resolver.instantiate_model", mock_instantiate), \
+             patch("agno.agent.Agent", mock_agent):
+            create_fresh_adversarial_reviewers("claude-sonnet-4-6")
+
+        # Anthropic implementer → reviewers should be openai + google
+        providers = {get_provider(mid) for mid in instantiated_ids}
+        assert "anthropic" not in providers
+
+    def test_unknown_provider_still_returns_reviewers(self) -> None:
+        mock_instantiate = MagicMock(side_effect=lambda mid: MagicMock(name=f"model-{mid}"))
+        mock_agent = MagicMock()
+
+        with patch("orchestra.model_resolver.instantiate_model", mock_instantiate), \
+             patch("agno.agent.Agent", mock_agent):
+            reviewers = create_fresh_adversarial_reviewers("llama-3-unknown")
+
+        assert len(reviewers) == 2
+
+    def test_reviewers_carry_adversarial_instructions(self) -> None:
+        """DESIGN.md §4.7: fresh reviewers must have adversarial review rubric."""
+        mock_instantiate = MagicMock(side_effect=lambda mid: MagicMock(name=f"model-{mid}"))
+        mock_agent = MagicMock(side_effect=lambda **kw: MagicMock(**kw))
+
+        with patch("orchestra.model_resolver.instantiate_model", mock_instantiate), \
+             patch("agno.agent.Agent", mock_agent):
+            create_fresh_adversarial_reviewers("claude-sonnet-4-6")
+
+        for call in mock_agent.call_args_list:
+            assert "instructions" in call.kwargs
+            instructions = call.kwargs["instructions"]
+            assert isinstance(instructions, list)
+            assert len(instructions) == 1
+            assert instructions[0] == ADVERSARIAL_REVIEW_RUBRIC
+            assert "adversarial" in instructions[0].lower()
+            assert "AC-01" in instructions[0]

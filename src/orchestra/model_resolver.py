@@ -1,9 +1,11 @@
-"""P0-04: 6-level model resolution chain.
+"""P0-04 + P1-06: Model resolution and cross-model adversarial review.
 
-Resolves which LLM model to use for a given agent role, respecting a 6-level
-priority chain from persisted config down to hardcoded fallback.
+P0-04: 6-level model resolution chain (resolve_model).
+P1-06: Cross-model adversarial review matrix (instantiate_model,
+       create_fresh_adversarial_reviewers).
 
 DESIGN.md §3.2 — orchestra.yaml schema and resolve_model() specification.
+DESIGN.md §3.3 — Cross-model review matrix.
 
 Priority (high → low):
   L1: Persisted agent config (retry consistency)
@@ -19,9 +21,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+from uuid import uuid4
 
 import yaml
+
+if TYPE_CHECKING:
+    from agno.agent import Agent
+    from agno.models.base import Model
 
 
 # L6: Hardcoded fallback — safety net when all config is missing.
@@ -175,3 +182,69 @@ def resolve_adversarial_reviewer(implementer_model: str) -> list[str]:
     }
     provider = get_provider(implementer_model)
     return REVIEW_MATRIX.get(provider, REVIEW_MATRIX["anthropic"])
+
+
+# ---------------------------------------------------------------------------
+# P1-06: Model instantiation and fresh adversarial reviewers
+# ---------------------------------------------------------------------------
+
+# Registry mapping model ID → (module_path, class_name, actual_model_id).
+# Lazy imports avoid requiring all provider SDKs at import time.
+_MODEL_REGISTRY: dict[str, tuple[str, str, str]] = {
+    "claude-opus-4-6": ("agno.models.anthropic", "Claude", "claude-opus-4-6"),
+    "claude-sonnet-4-6": ("agno.models.anthropic", "Claude", "claude-sonnet-4-6"),
+    "claude-haiku-4-5": ("agno.models.anthropic", "Claude", "claude-haiku-4-5"),
+    "gemini-pro": ("agno.models.google", "Gemini", "gemini-2.5-pro"),
+    "codex-gpt-5.3": ("agno.models.openai", "OpenAIChat", "codex-gpt-5.3"),
+}
+
+
+def instantiate_model(model_id: str) -> Model:
+    """Construct an Agno Model object from a model ID.
+
+    DESIGN.md §3.3 — used by create_fresh_adversarial_reviewers().
+    Bypasses resolve_model(); the review matrix dictates model selection.
+    """
+    entry = _MODEL_REGISTRY.get(model_id)
+    if entry is None:
+        raise ValueError(f"Unknown model ID: {model_id}")
+
+    module_path, class_name, actual_id = entry
+    import importlib
+
+    module = importlib.import_module(module_path)
+    cls = getattr(module, class_name)
+    return cls(id=actual_id)
+
+
+ADVERSARIAL_REVIEW_RUBRIC = (
+    "You are an adversarial code reviewer. Your role is to find defects, "
+    "security vulnerabilities, design violations, and correctness issues. "
+    "You must review code from a different model provider than the implementer "
+    "to ensure diverse perspectives. Be thorough and critical — flag any "
+    "deviation from the design specification, missing error handling, "
+    "untested edge cases, or potential regressions. Never approve code "
+    "that violates architectural constraints (AC-01 through AC-07)."
+)
+
+
+def create_fresh_adversarial_reviewers(implementer_model_id: str) -> list[Agent]:
+    """Create two stateless reviewer instances from the cross-model review matrix.
+
+    DESIGN.md §3.3 + §4.7 — reviewers use different providers than the implementer.
+    Fresh reviewers have no session_id and no learning (completely stateless).
+    Each reviewer carries adversarial review instructions per §4.7.
+    Model selection is driven entirely by the review matrix, not resolve_model().
+    """
+    from agno.agent import Agent
+
+    reviewer_model_ids = resolve_adversarial_reviewer(implementer_model_id)
+    return [
+        Agent(
+            name=f"AdversarialReviewer{i + 1}-{uuid4().hex[:8]}",
+            model=instantiate_model(model_id),
+            instructions=[ADVERSARIAL_REVIEW_RUBRIC],
+            # No session_id, no learning — completely stateless
+        )
+        for i, model_id in enumerate(reviewer_model_ids)
+    ]
