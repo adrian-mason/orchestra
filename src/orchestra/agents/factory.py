@@ -123,7 +123,10 @@ def resolve_design_members(
             DEFAULT_TAG_MAPPINGS.
 
     Returns:
-        List of agent config dicts (compatible with Agent(**cfg) construction).
+        List of agent config dicts (compatible with ``Agent(**cfg)``
+        construction). Returns dicts rather than Agent instances to avoid
+        importing Agno model classes at factory level — callers must
+        construct Agent objects themselves: ``[Agent(**cfg) for cfg in members]``.
     """
     active_mappings = tag_mappings if tag_mappings is not None else DEFAULT_TAG_MAPPINGS
     tag_index = _build_tag_index(active_mappings)
