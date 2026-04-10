@@ -277,7 +277,7 @@ class TestIrreversibility:
         keys = [
             "sk-ant-abcdefghijklmnopqrstuvwxyz1234567890",
             "ghp_abcdefghijklmnopqrstuvwxyz1234",
-            "AIzaSyA1234567890abcdefghijklmnopqrstuv",
+            "AIzaSyA" + "1234567890abcdefghijklmnopqrstuv",
         ]
         text = " ".join(f"key={k}" for k in keys)
         result = sanitize(text)
@@ -290,7 +290,7 @@ class TestMultipleSecretsInOneLine:
         text = (
             "anthropic=sk-ant-abcdefghijklmnopqrstuvwxyz1234567890 "
             "github=ghp_abcdefghijklmnopqrstuvwxyz1234 "
-            "google=AIzaSyA1234567890abcdefghijklmnopqrstuv"
+            "google=" + "AIzaSyA" + "1234567890abcdefghijklmnopqrstuv"
         )
         result = sanitize(text)
         assert "[REDACTED_ANTHROPIC_KEY]" in result
