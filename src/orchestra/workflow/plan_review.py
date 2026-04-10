@@ -24,6 +24,7 @@ from pydantic import BaseModel, Field
 
 from agno.workflow.types import StepInput, StepOutput
 
+from orchestra.model_resolver import instantiate_model
 from orchestra.utils.session import get_ss, set_ss
 from orchestra.utils.team import check_team_member_errors
 from orchestra.workflow.gate import create_decision_gate
@@ -190,17 +191,18 @@ def create_plan_review_team(db: SqliteDb) -> Any:
         Configured Agno Team instance.
     """
     from agno.agent import Agent
-    from agno.models.anthropic import Claude
     from agno.team import Team
     from agno.team.mode import TeamMode
 
+    # All models use instantiate_model() for provider-agnostic resolution
+    # instead of direct Claude/Gemini/OpenAI imports.
     return Team(
         name="Plan Review Gate",
-        model=Claude(id="claude-sonnet-4-6"),
+        model=instantiate_model("claude-sonnet-4-6"),
         members=[
             Agent(
                 name="Feasibility Critic",
-                model="gemini-pro",
+                model=instantiate_model("gemini-pro"),
                 instructions=(
                     "You are a Feasibility Critic. Evaluate the plan's feasibility.\n"
                     "Consider: technical complexity, resource requirements, timeline,\n"
@@ -212,7 +214,7 @@ def create_plan_review_team(db: SqliteDb) -> Any:
             ),
             Agent(
                 name="Completeness Critic",
-                model="codex-mini",
+                model=instantiate_model("codex-gpt-5.3"),
                 instructions=(
                     "You are a Completeness Critic. Evaluate the plan's completeness.\n"
                     "Consider: missing edge cases, error handling gaps, untested\n"
@@ -224,7 +226,7 @@ def create_plan_review_team(db: SqliteDb) -> Any:
             ),
             Agent(
                 name="Scope Critic",
-                model=Claude(id="claude-haiku-4-5"),
+                model=instantiate_model("claude-haiku-4-5"),
                 instructions=(
                     "You are a Scope Critic. Evaluate scope alignment.\n"
                     "Consider: scope creep, unnecessary complexity, alignment with\n"
@@ -245,6 +247,24 @@ def create_plan_review_team(db: SqliteDb) -> Any:
 # ---------------------------------------------------------------------------
 
 
+def _is_genuine_team_error(errors: list[str]) -> bool:
+    """Filter check_team_member_errors results for genuine failures.
+
+    Same heuristic as P1-03's design_team._is_genuine_team_error().
+    Bare mentions of 'Error' in critic feedback (e.g., "Error handling
+    is incomplete") are legitimate and should not trigger AC-06 rejection.
+    """
+    for err_context in errors:
+        lower = err_context.lower()
+        if "traceback (most recent call last)" in lower:
+            return True
+        if "error occurred during execution" in lower:
+            return True
+        if "member" in lower and "failed" in lower:
+            return True
+    return False
+
+
 def check_plan_gate(step_input: StepInput) -> StepOutput:
     """Check Plan Review Gate — ALL must PASS (DESIGN.md §4.3).
 
@@ -257,8 +277,13 @@ def check_plan_gate(step_input: StepInput) -> StepOutput:
     """
     content = step_input.previous_step_content
 
-    # AC-06: Check for team member errors
-    check_team_member_errors(content)
+    # AC-06: Check for team member errors. Use raise_on_error=False
+    # and filter for genuine Agno failures to avoid false positives
+    # from critic feedback discussing errors legitimately.
+    errors = check_team_member_errors(content, raise_on_error=False)
+    if errors and _is_genuine_team_error(errors):
+        from orchestra.utils.team import TeamMemberError
+        raise TeamMemberError(errors)
 
     verdicts = parse_verdicts(content)
     all_pass = all(v.verdict == "PASS" for v in verdicts)
@@ -306,7 +331,12 @@ def check_plan_review_result(step_input: StepInput) -> StepOutput:
     verdicts_data = get_ss(step_input, "plan_gate_verdicts", [])
     verdicts = [GateVerdict(**v) for v in verdicts_data]
 
-    # Get db from workflow session for gate persistence
+    # Get db from workflow session for gate persistence.
+    # NOTE: workflow_session.db is traces_db per DESIGN.md §10.1.
+    # DecisionGate records ideally go to events_db. In the current
+    # architecture, step functions only receive StepInput (no events_db).
+    # TODO: wire events_db via closure pattern (create_check_plan_review_result(events_db))
+    # or store events_db reference in workflow session metadata.
     db = getattr(step_input.workflow_session, "db", None)
     workflow_run_id = getattr(step_input.workflow_session, "session_id", "unknown")
     agent_id = "plan_review_gate"
