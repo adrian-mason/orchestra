@@ -269,8 +269,9 @@ def create_agent(
         **kwargs: Additional keyword arguments passed through to the agent config.
 
     Returns:
-        Dict with keys: name, model, role, instructions, description, team_mode,
-        plus any additional kwargs.
+        Dict with keys: name, model, role, instructions, description,
+        plus any additional kwargs. Compatible with Agent(**create_agent(...)).
+        For team_mode, use get_role_config(role).team_mode separately.
 
     Raises:
         KeyError: If the role is not found.
@@ -304,7 +305,6 @@ def create_agent(
         "role": role_cfg.description,
         "instructions": role_config_with_extras.get_full_instructions(),
         "description": role_cfg.description,
-        "team_mode": role_cfg.team_mode,
         **kwargs,
     }
     return agent_config

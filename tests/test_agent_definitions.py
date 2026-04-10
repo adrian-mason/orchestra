@@ -214,13 +214,18 @@ class TestCreateAgent:
         )
         assert "Focus on Rust files only." in agent["instructions"]
 
-    def test_team_mode_included(self):
+    def test_team_mode_not_in_agent_dict(self):
+        """team_mode is accessed via get_role_config(), not in agent dict.
+        This ensures Agent(**create_agent(...)) won't raise TypeError."""
         agent = create_agent(AgentRole.ARCHITECT)
-        assert agent["team_mode"] == "coordinate"
+        assert "team_mode" not in agent
 
-    def test_standalone_agent_has_no_team_mode(self):
-        agent = create_agent(AgentRole.SCOUT)
-        assert agent["team_mode"] is None
+    def test_team_mode_via_role_config(self):
+        """team_mode is available from get_role_config() for Team construction."""
+        cfg = get_role_config(AgentRole.ARCHITECT)
+        assert cfg.team_mode == "coordinate"
+        cfg_scout = get_role_config(AgentRole.SCOUT)
+        assert cfg_scout.team_mode is None
 
     def test_kwargs_pass_through(self):
         agent = create_agent(AgentRole.SCOUT, custom_param="value")
