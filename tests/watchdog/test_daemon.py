@@ -286,6 +286,19 @@ class TestAgentExit:
         actions = daemon.run_once()
         assert actions[0]["action"] == "exited"
 
+    def test_exited_agent_auto_unregistered(self, daemon) -> None:
+        """EXITED agents are auto-unregistered to prevent log spam."""
+        daemon.register_agent("ghost", "Ghost Agent")
+        daemon.run_once()
+        assert "ghost" not in daemon.monitored_agents
+
+    def test_exited_agent_not_logged_on_subsequent_cycles(self, daemon) -> None:
+        """After auto-unregister, exited agent produces no further actions."""
+        daemon.register_agent("ghost", "Ghost Agent")
+        daemon.run_once()
+        actions = daemon.run_once()
+        assert len(actions) == 0
+
 
 # ---------------------------------------------------------------------------
 # Blocked agents
@@ -338,6 +351,8 @@ class TestMultiAgent:
         assert by_id["b"]["action"] == "warn"
         assert by_id["c"]["action"] == "skip_gate"
         assert by_id["d"]["action"] == "exited"
+        # Exited agent auto-unregistered
+        assert "d" not in daemon.monitored_agents
 
 
 # ---------------------------------------------------------------------------

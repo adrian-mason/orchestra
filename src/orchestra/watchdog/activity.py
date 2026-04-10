@@ -134,7 +134,7 @@ def _get_last_event(events_db: SqliteDb, agent_id: str) -> dict[str, Any] | None
     with events_db.db_engine.connect() as conn:
         result = conn.execute(
             text(
-                "SELECT * FROM events "
+                "SELECT event_type, created_at FROM events "
                 "WHERE agent_name = :agent_id "
                 "ORDER BY created_at DESC LIMIT 1"
             ),

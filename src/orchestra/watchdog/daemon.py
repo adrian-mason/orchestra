@@ -119,10 +119,17 @@ class WatchdogDaemon:
     # -- Core monitoring --
 
     async def run(self) -> None:
-        """Start the monitor loop. Runs until stop() is called."""
+        """Start the monitor loop. Runs until stop() is called.
+
+        Uses asyncio.to_thread to avoid blocking the event loop
+        during synchronous SQLite queries in run_once().
+        """
         self._running = True
         while self._running:
-            self.run_once()
+            try:
+                await asyncio.to_thread(self.run_once)
+            except Exception:
+                logger.exception("watchdog monitor cycle failed")
             await asyncio.sleep(self.check_interval_sec)
 
     def stop(self) -> None:
@@ -236,7 +243,7 @@ class WatchdogDaemon:
                         action_record["action"] = "stuck_deferred"
 
             case ActivityState.EXITED:
-                # Process exited — log error
+                # Process exited — log error and auto-unregister
                 self._log(
                     "ERROR",
                     "agent_exited",
@@ -245,6 +252,7 @@ class WatchdogDaemon:
                 )
                 if self._on_agent_exited:
                     self._on_agent_exited(agent.agent_id, agent.agent_name)
+                self.unregister_agent(agent.agent_id)
                 action_record["action"] = "exited"
 
         return action_record
