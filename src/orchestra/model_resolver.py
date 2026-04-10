@@ -105,6 +105,7 @@ def resolve_model(
     project: str | None = None,
     spawn_override: str | None = None,
     persisted_model: str | None = None,
+    role_default: str | None = None,
 ) -> str:
     """6-level model resolution chain.
 
@@ -117,6 +118,8 @@ def resolve_model(
         project: Optional project name for project-level overrides.
         spawn_override: Optional runtime override (e.g. --model CLI flag).
         persisted_model: Optional model from persisted agent config (retry consistency).
+        role_default: Optional code-level default model for the role (from RoleConfig).
+            Sits between L4 (YAML role config) and L5 (global_default).
 
     Returns:
         Model ID string (e.g. "claude-sonnet-4-6").
@@ -142,10 +145,14 @@ def resolve_model(
         if proj_cfg.default:
             return proj_cfg.default
 
-    # L4: Global role config
+    # L4: Global role config (from YAML)
     role_model = config.roles.get(role)
     if role_model:
         return role_model
+
+    # L4.5: Code-level role default (from RoleConfig.default_model)
+    if role_default and role_default.strip():
+        return role_default.strip()
 
     # L5: global_default
     if config.global_default:

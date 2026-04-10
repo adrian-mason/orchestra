@@ -151,6 +151,28 @@ def test_l4_unknown_project_falls_to_global_role(full_config: ModelsConfig):
     assert result == "claude-opus-4-6"
 
 
+# ── L4.5: Code-level role default (from RoleConfig.default_model) ──
+
+
+def test_l4_5_role_default(empty_config: ModelsConfig):
+    """role_default is used when no YAML role config exists."""
+    result = resolve_model("scout", config=empty_config, role_default="claude-haiku-4-5")
+    assert result == "claude-haiku-4-5"
+
+
+def test_l4_5_role_default_loses_to_l4(full_config: ModelsConfig):
+    """YAML role config (L4) takes priority over code-level role_default (L4.5)."""
+    result = resolve_model("architect", config=full_config, role_default="fallback-model")
+    assert result == "claude-opus-4-6"  # L4 from YAML wins
+
+
+def test_l4_5_role_default_beats_l5():
+    """role_default (L4.5) takes priority over global_default (L5)."""
+    config = ModelsConfig(global_default="global-model")
+    result = resolve_model("scout", config=config, role_default="role-model")
+    assert result == "role-model"
+
+
 # ── L5: global_default ──
 
 
@@ -201,7 +223,9 @@ def test_full_chain_l1_to_l6():
     assert resolve_model("otherrole", config=config, project="proj") == "L3b-model"
     # L4 wins (no project)
     assert resolve_model("testrole", config=config) == "L4-model"
-    # L5 wins (unknown role, no project)
+    # L4.5 wins (unknown role with role_default, no project)
+    assert resolve_model("unknown", config=config, role_default="L4.5-model") == "L4.5-model"
+    # L5 wins (unknown role, no role_default, no project)
     assert resolve_model("unknown", config=config) == "L5-model"
     # L6 wins (empty config)
     assert resolve_model("unknown", config=ModelsConfig()) == HARDCODED_FALLBACK
