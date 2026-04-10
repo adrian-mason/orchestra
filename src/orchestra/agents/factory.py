@@ -95,8 +95,12 @@ DEFAULT_TAG_MAPPINGS: list[SpecialistMapping] = [
 def _build_tag_index(
     mappings: list[SpecialistMapping],
 ) -> dict[str, SpecialistMapping]:
-    """Build a tag → SpecialistMapping index for O(1) lookup."""
-    return {m.tag: m for m in mappings}
+    """Build a tag → SpecialistMapping index for O(1) lookup.
+
+    Keys are normalized to lowercase to match the case-insensitive
+    lookup in resolve_design_members().
+    """
+    return {m.tag.lower(): m for m in mappings}
 
 
 def resolve_design_members(
@@ -139,7 +143,11 @@ def resolve_design_members(
     )
     members = [architect_cfg]
 
-    # Conditionally add specialists based on project tags
+    # Conditionally add specialists based on project tags.
+    # NOTE (AC-03): We access session_state directly rather than via get_ss()/
+    # set_ss() because Agno's F7 callable signature passes session_state as a
+    # raw dict, not a StepInput — AC-03 helpers operate at the workflow step
+    # abstraction layer, not the team-member factory layer.
     project_tags = session_state.get("project_tags", [])
     if not isinstance(project_tags, list):
         logger.warning(
