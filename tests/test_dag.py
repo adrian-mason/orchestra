@@ -4,6 +4,8 @@ Covers both happy-path and failure-path scenarios per Challenger's requirement
 that all submissions include failure-path evidence.
 """
 
+import warnings
+
 import pytest
 
 from orchestra.models.work_unit import WorkUnit
@@ -259,3 +261,124 @@ class TestValidateNoOverlap:
         ]
         with pytest.raises(FileOverlapError, match="Patterns overlap"):
             validate_no_overlap(units)
+
+    def test_strict_true_is_default(self):
+        """Default strict=True raises on overlap (backwards compatible)."""
+        units = [
+            _wu("a", files=["src/auth/*.py"]),
+            _wu("b", files=["src/auth/*.py"]),
+        ]
+        with pytest.raises(FileOverlapError):
+            validate_no_overlap(units)
+
+    def test_returns_empty_list_no_overlap(self):
+        """Return value is empty list when no overlaps."""
+        units = [
+            _wu("a", files=["src/auth/*.py"]),
+            _wu("b", files=["src/db/*.py"]),
+        ]
+        result = validate_no_overlap(units)
+        assert result == []
+
+
+# ---------------------------------------------------------------------------
+# validate_no_overlap — strict vs warning mode (P1-11)
+# ---------------------------------------------------------------------------
+
+class TestValidateNoOverlapWarningMode:
+    def test_warning_mode_does_not_raise(self):
+        """strict=False emits warnings instead of raising."""
+        units = [
+            _wu("a", files=["src/auth/*.py"]),
+            _wu("b", files=["src/auth/*.py"]),
+        ]
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            result = validate_no_overlap(units, strict=False)
+        assert len(result) >= 1
+        assert "claimed by both" in result[0]
+        assert len(w) >= 1
+        assert issubclass(w[0].category, UserWarning)
+
+    def test_warning_mode_collects_all_overlaps(self):
+        """strict=False collects multiple overlaps instead of stopping at first."""
+        units = [
+            _wu("a", files=["src/auth/*.py"]),
+            _wu("b", files=["src/auth/*.py"]),
+            _wu("c", files=["src/auth/*.py"]),
+        ]
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            result = validate_no_overlap(units, strict=False)
+        # At least 2 overlaps: b vs a, c vs a (and possibly c vs b)
+        assert len(result) >= 2
+        assert len(w) >= 2
+
+    def test_warning_mode_cross_matching(self):
+        """strict=False warns on cross-matching patterns."""
+        units = [
+            _wu("a", files=["src/*.py"]),
+            _wu("b", files=["src/auth.py"]),
+        ]
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            result = validate_no_overlap(units, strict=False)
+        assert len(result) >= 1
+        assert "overlap" in result[0].lower() or "claimed" in result[0].lower()
+        assert len(w) >= 1
+
+    def test_warning_mode_no_overlap_clean(self):
+        """strict=False with no overlaps returns empty list and no warnings."""
+        units = [
+            _wu("a", files=["src/auth/*.py"]),
+            _wu("b", files=["src/db/*.py"]),
+        ]
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            result = validate_no_overlap(units, strict=False)
+        assert result == []
+        assert len(w) == 0
+
+    def test_warning_mode_recursive_glob(self):
+        """strict=False warns on recursive glob overlap."""
+        units = [
+            _wu("a", files=["src/**/*.py"]),
+            _wu("b", files=["src/auth.py"]),
+        ]
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            result = validate_no_overlap(units, strict=False)
+        assert len(result) >= 1
+        assert len(w) >= 1
+
+    def test_warning_messages_contain_unit_ids(self):
+        """Warning messages include WorkUnit IDs for debugging."""
+        units = [
+            _wu("alpha", files=["src/auth/*.py"]),
+            _wu("beta", files=["src/auth/*.py"]),
+        ]
+        with warnings.catch_warnings(record=True):
+            warnings.simplefilter("always")
+            result = validate_no_overlap(units, strict=False)
+        assert any("alpha" in msg and "beta" in msg for msg in result)
+
+    def test_strict_true_raises_on_first(self):
+        """strict=True still raises immediately on first overlap."""
+        units = [
+            _wu("a", files=["src/auth/*.py"]),
+            _wu("b", files=["src/auth/*.py"]),
+            _wu("c", files=["src/db/*.py"]),
+        ]
+        with pytest.raises(FileOverlapError, match="claimed by both"):
+            validate_no_overlap(units, strict=True)
+
+    def test_intra_unit_overlap_still_allowed_in_warning_mode(self):
+        """Patterns within the same unit don't generate warnings."""
+        units = [
+            _wu("a", files=["src/*.py", "src/auth.py"]),
+        ]
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            result = validate_no_overlap(units, strict=False)
+        assert result == []
+        assert len(w) == 0
