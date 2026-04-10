@@ -6,7 +6,7 @@ Covers:
 - format_feedback: structured markdown output
 - check_plan_gate: session state writes, pass/fail logic, AC-06 error check
 - plan_review_approved: end_condition for Loop (AC-01)
-- check_plan_review_result: post-Loop decision gate creation (AC-04)
+- create_check_plan_review_result: closure factory for post-Loop decision gate (AC-04)
 - revise_plan_from_feedback: plan revision with feedback integration
 """
 
@@ -23,7 +23,7 @@ from agno.workflow.types import StepOutput
 from orchestra.workflow.plan_review import (
     GateVerdict,
     check_plan_gate,
-    check_plan_review_result,
+    create_check_plan_review_result,
     format_feedback,
     parse_verdicts,
     plan_review_approved,
@@ -347,32 +347,43 @@ class TestPlanReviewApproved:
 
 
 class TestCheckPlanReviewResult:
+    def test_factory_returns_callable(self) -> None:
+        events_db = MagicMock()
+        step_fn = create_check_plan_review_result(events_db)
+        assert callable(step_fn)
+
     def test_passed_returns_success(self) -> None:
+        events_db = MagicMock()
+        step_fn = create_check_plan_review_result(events_db)
         si = _make_step_input(
             session_state={"plan_gate_passed": True},
         )
-        result = check_plan_review_result(si)
+        result = step_fn(si)
         assert result.content == "PLAN_REVIEW_PASSED"
 
-    def test_failed_creates_decision_gate(self) -> None:
+    def test_failed_creates_decision_gate_with_events_db(self) -> None:
+        """Verify DecisionGate is created using events_db, not traces_db."""
+        events_db = MagicMock()
+        step_fn = create_check_plan_review_result(events_db)
         verdicts_data = [
             {"reviewer": "A", "verdict": "FAIL", "reasoning": "Bad",
              "blockers": ["b1"], "suggestions": []},
         ]
-        db = MagicMock()
         si = _make_step_input(
             session_state={
                 "plan_gate_passed": False,
                 "plan_gate_verdicts": verdicts_data,
                 "plan_review_round": 3,
             },
-            db=db,
+            db=MagicMock(),  # traces_db on workflow_session — should NOT be used
         )
         with patch("orchestra.workflow.plan_review.create_decision_gate") as mock_gate:
             mock_gate.return_value = MagicMock(id="dg-test123")
-            result = check_plan_review_result(si)
+            result = step_fn(si)
 
             mock_gate.assert_called_once()
+            # Verify events_db (from closure) is passed, not traces_db
+            assert mock_gate.call_args[0][0] is events_db
             call_kwargs = mock_gate.call_args
             assert call_kwargs.kwargs["gate_type"] == "plan_review"
             assert call_kwargs.kwargs["workflow_run_id"] == "test-session-123"
@@ -380,18 +391,6 @@ class TestCheckPlanReviewResult:
         assert "PLAN_REVIEW_FAILED_AFTER_3_ROUNDS" in result.content
         ss = si.workflow_session.session_data["session_state"]
         assert ss["pending_decision_gate_id"] == "dg-test123"
-
-    def test_failed_without_db_skips_gate_creation(self) -> None:
-        si = _make_step_input(
-            session_state={
-                "plan_gate_passed": False,
-                "plan_gate_verdicts": [],
-                "plan_review_round": 2,
-            },
-            db=None,
-        )
-        result = check_plan_review_result(si)
-        assert "PLAN_REVIEW_FAILED_AFTER_2_ROUNDS" in result.content
 
 
 # ---------------------------------------------------------------------------

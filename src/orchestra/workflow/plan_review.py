@@ -18,7 +18,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
 
 from pydantic import BaseModel, Field
 
@@ -317,33 +317,54 @@ def plan_review_approved(step_outputs: list[StepOutput]) -> bool:
     )
 
 
-def check_plan_review_result(step_input: StepInput) -> StepOutput:
-    """Post-Loop step: check if plan review passed (AC-04).
+def create_check_plan_review_result(
+    events_db: SqliteDb,
+) -> Any:
+    """Factory that returns a post-Loop step function with events_db bound.
 
-    If passed, returns PLAN_REVIEW_PASSED.
-    If not passed, creates a DecisionGate for human escalation.
-    The next step (decision_gate_step) will use requires_confirmation=True.
+    DecisionGate records must go to events_db (not traces_db) so the
+    REST API and Watchdog can find them (DESIGN.md §4.5, §10.1).
+    Step functions only receive StepInput (which gives access to traces_db
+    via workflow_session.db), so we use a closure to bind events_db at
+    workflow assembly time.
+
+    Usage at workflow assembly::
+
+        Step(
+            executor=create_check_plan_review_result(events_db),
+            name="check_plan_review_result",
+            ...
+        )
+
+    Args:
+        events_db: The events database for DecisionGate persistence.
+
+    Returns:
+        Step function with signature (StepInput) -> StepOutput.
     """
-    if get_ss(step_input, "plan_gate_passed"):
-        return StepOutput(content="PLAN_REVIEW_PASSED")
 
-    # Not passed after max iterations — create DecisionGate for human review
-    verdicts_data = get_ss(step_input, "plan_gate_verdicts", [])
-    verdicts = [GateVerdict(**v) for v in verdicts_data]
+    def check_plan_review_result(step_input: StepInput) -> StepOutput:
+        """Post-Loop step: check if plan review passed (AC-04).
 
-    # Get db from workflow session for gate persistence.
-    # NOTE: workflow_session.db is traces_db per DESIGN.md §10.1.
-    # DecisionGate records ideally go to events_db. In the current
-    # architecture, step functions only receive StepInput (no events_db).
-    # TODO: wire events_db via closure pattern (create_check_plan_review_result(events_db))
-    # or store events_db reference in workflow session metadata.
-    db = getattr(step_input.workflow_session, "db", None)
-    workflow_run_id = getattr(step_input.workflow_session, "session_id", "unknown")
-    agent_id = "plan_review_gate"
+        If passed, returns PLAN_REVIEW_PASSED.
+        If not passed, creates a DecisionGate for human escalation.
+        """
+        if get_ss(step_input, "plan_gate_passed"):
+            return StepOutput(content="PLAN_REVIEW_PASSED")
 
-    if db is not None:
+        # Not passed after max iterations — create DecisionGate for human review
+        verdicts_data = get_ss(step_input, "plan_gate_verdicts", [])
+        verdicts = [GateVerdict(**v) for v in verdicts_data]
+
+        workflow_run_id = getattr(
+            step_input.workflow_session, "session_id", "unknown"
+        )
+        agent_id = "plan_review_gate"
+
+        # events_db is bound via closure — DecisionGate records go to
+        # events.db, not traces.db (DESIGN.md §4.5, §10.1).
         gate = create_decision_gate(
-            db,
+            events_db,
             workflow_run_id=workflow_run_id,
             agent_id=agent_id,
             gate_type="plan_review",
@@ -355,8 +376,10 @@ def check_plan_review_result(step_input: StepInput) -> StepOutput:
         set_ss(step_input, "pending_decision_gate_id", gate.id)
         logger.info("Created DecisionGate %s for plan review escalation", gate.id)
 
-    round_num = get_ss(step_input, "plan_review_round", 0)
-    return StepOutput(content=f"PLAN_REVIEW_FAILED_AFTER_{round_num}_ROUNDS")
+        round_num = get_ss(step_input, "plan_review_round", 0)
+        return StepOutput(content=f"PLAN_REVIEW_FAILED_AFTER_{round_num}_ROUNDS")
+
+    return check_plan_review_result
 
 
 def revise_plan_from_feedback(step_input: StepInput) -> StepOutput:
