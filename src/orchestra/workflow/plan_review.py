@@ -52,7 +52,7 @@ class GateVerdict(BaseModel):
     reviewer: str = Field(description="Name of the reviewing agent")
     verdict: str = Field(
         description="Verdict outcome",
-        pattern=r"^(PASS|FAIL|APPROVED|REJECTED)$",
+        pattern=r"^(PASS|FAIL|APPROVED|NEEDS_REVISION|REJECTED)$",
     )
     reasoning: str = Field(default="", description="Explanation for the verdict")
     blockers: list[str] = Field(
@@ -147,8 +147,9 @@ def format_feedback(verdicts: list[GateVerdict]) -> str:
     """
     lines: list[str] = ["## Review Feedback\n"]
 
+    passing_verdicts = {"PASS", "APPROVED"}
     for v in verdicts:
-        status = "✅ PASS" if v.verdict == "PASS" else f"❌ {v.verdict}"
+        status = f"✅ {v.verdict}" if v.verdict in passing_verdicts else f"❌ {v.verdict}"
         lines.append(f"### {v.reviewer}: {status}")
         if v.reasoning:
             lines.append(f"\n{v.reasoning}\n")
@@ -163,8 +164,8 @@ def format_feedback(verdicts: list[GateVerdict]) -> str:
                 lines.append(f"- {s}")
             lines.append("")
 
-    passing = sum(1 for v in verdicts if v.verdict == "PASS")
-    lines.append(f"\n**Summary:** {passing}/{len(verdicts)} critics passed.\n")
+    passing = sum(1 for v in verdicts if v.verdict in passing_verdicts)
+    lines.append(f"\n**Summary:** {passing}/{len(verdicts)} reviewers passed.\n")
     return "\n".join(lines)
 
 
@@ -194,8 +195,12 @@ def create_plan_review_team(db: SqliteDb) -> Any:
     from agno.team import Team
     from agno.team.mode import TeamMode
 
-    # All models use instantiate_model() for provider-agnostic resolution
-    # instead of direct Claude/Gemini/OpenAI imports.
+    verdict_instructions = (
+        "Return your verdict as a JSON object:\n"
+        '{"reviewer": "<your role>", "verdict": "PASS" or "FAIL",\n'
+        ' "reasoning": "...", "blockers": [...], "suggestions": [...]}'
+    )
+
     return Team(
         name="Plan Review Gate",
         model=instantiate_model("claude-sonnet-4-6"),
@@ -207,21 +212,17 @@ def create_plan_review_team(db: SqliteDb) -> Any:
                     "You are a Feasibility Critic. Evaluate the plan's feasibility.\n"
                     "Consider: technical complexity, resource requirements, timeline,\n"
                     "dependencies, and potential blockers.\n\n"
-                    "Return your verdict as a JSON object:\n"
-                    '{"reviewer": "Feasibility Critic", "verdict": "PASS" or "FAIL",\n'
-                    ' "reasoning": "...", "blockers": [...], "suggestions": [...]}'
+                    + verdict_instructions
                 ),
             ),
             Agent(
                 name="Completeness Critic",
-                model=instantiate_model("codex-gpt-5.3"),
+                model=instantiate_model("claude-haiku-4-5"),
                 instructions=(
                     "You are a Completeness Critic. Evaluate the plan's completeness.\n"
                     "Consider: missing edge cases, error handling gaps, untested\n"
                     "assumptions, integration points, and documentation needs.\n\n"
-                    "Return your verdict as a JSON object:\n"
-                    '{"reviewer": "Completeness Critic", "verdict": "PASS" or "FAIL",\n'
-                    ' "reasoning": "...", "blockers": [...], "suggestions": [...]}'
+                    + verdict_instructions
                 ),
             ),
             Agent(
@@ -231,9 +232,7 @@ def create_plan_review_team(db: SqliteDb) -> Any:
                     "You are a Scope Critic. Evaluate scope alignment.\n"
                     "Consider: scope creep, unnecessary complexity, alignment with\n"
                     "original requirements, and appropriate boundaries.\n\n"
-                    "Return your verdict as a JSON object:\n"
-                    '{"reviewer": "Scope Critic", "verdict": "PASS" or "FAIL",\n'
-                    ' "reasoning": "...", "blockers": [...], "suggestions": [...]}'
+                    + verdict_instructions
                 ),
             ),
         ],
@@ -250,9 +249,8 @@ def create_plan_review_team(db: SqliteDb) -> Any:
 def _is_genuine_team_error(errors: list[str]) -> bool:
     """Filter check_team_member_errors results for genuine failures.
 
-    Same heuristic as P1-03's design_team._is_genuine_team_error().
-    Bare mentions of 'Error' in critic feedback (e.g., "Error handling
-    is incomplete") are legitimate and should not trigger AC-06 rejection.
+    Bare mentions of 'Error' in critic output are legitimate and should
+    not trigger AC-06 rejection.
     """
     for err_context in errors:
         lower = err_context.lower()
@@ -273,16 +271,15 @@ def check_plan_gate(step_input: StepInput) -> StepOutput:
 
     AC-02: This step must be wrapped with on_error=OnError.fail.
     AC-03: Uses get_ss()/set_ss() for session state access.
-    AC-06: Calls check_team_member_errors() on team output.
+    AC-06: Calls check_team_member_errors() with false-positive filtering.
     """
-    content = step_input.previous_step_content
+    content = str(step_input.previous_step_content or "")
 
-    # AC-06: Check for team member errors. Use raise_on_error=False
-    # and filter for genuine Agno failures to avoid false positives
-    # from critic feedback discussing errors legitimately.
+    # AC-06: Check for team member errors (with false-positive filtering)
     errors = check_team_member_errors(content, raise_on_error=False)
     if errors and _is_genuine_team_error(errors):
         from orchestra.utils.team import TeamMemberError
+
         raise TeamMemberError(errors)
 
     verdicts = parse_verdicts(content)
@@ -319,28 +316,12 @@ def plan_review_approved(step_outputs: list[StepOutput]) -> bool:
 
 def create_check_plan_review_result(
     events_db: SqliteDb,
-) -> Any:
-    """Factory that returns a post-Loop step function with events_db bound.
+) -> Callable[[StepInput], StepOutput]:
+    """Factory: create post-Loop step with events_db bound via closure (AC-04).
 
-    DecisionGate records must go to events_db (not traces_db) so the
-    REST API and Watchdog can find them (DESIGN.md §4.5, §10.1).
-    Step functions only receive StepInput (which gives access to traces_db
-    via workflow_session.db), so we use a closure to bind events_db at
-    workflow assembly time.
-
-    Usage at workflow assembly::
-
-        Step(
-            executor=create_check_plan_review_result(events_db),
-            name="check_plan_review_result",
-            ...
-        )
-
-    Args:
-        events_db: The events database for DecisionGate persistence.
-
-    Returns:
-        Step function with signature (StepInput) -> StepOutput.
+    Decision gates must be persisted to events_db, NOT traces_db.
+    The closure captures events_db so the step function doesn't read it
+    from workflow_session.db (which is traces_db).
     """
 
     def check_plan_review_result(step_input: StepInput) -> StepOutput:
@@ -352,21 +333,17 @@ def create_check_plan_review_result(
         if get_ss(step_input, "plan_gate_passed"):
             return StepOutput(content="PLAN_REVIEW_PASSED")
 
-        # Not passed after max iterations — create DecisionGate for human review
         verdicts_data = get_ss(step_input, "plan_gate_verdicts", [])
         verdicts = [GateVerdict(**v) for v in verdicts_data]
 
         workflow_run_id = getattr(
             step_input.workflow_session, "session_id", "unknown"
         )
-        agent_id = "plan_review_gate"
 
-        # events_db is bound via closure — DecisionGate records go to
-        # events.db, not traces.db (DESIGN.md §4.5, §10.1).
         gate = create_decision_gate(
             events_db,
             workflow_run_id=workflow_run_id,
-            agent_id=agent_id,
+            agent_id="plan_review_gate",
             gate_type="plan_review",
             context={
                 "verdicts": [v.model_dump() for v in verdicts],
@@ -374,10 +351,14 @@ def create_check_plan_review_result(
             },
         )
         set_ss(step_input, "pending_decision_gate_id", gate.id)
-        logger.info("Created DecisionGate %s for plan review escalation", gate.id)
+        logger.info(
+            "Created DecisionGate %s for plan review escalation", gate.id
+        )
 
         round_num = get_ss(step_input, "plan_review_round", 0)
-        return StepOutput(content=f"PLAN_REVIEW_FAILED_AFTER_{round_num}_ROUNDS")
+        return StepOutput(
+            content=f"PLAN_REVIEW_FAILED_AFTER_{round_num}_ROUNDS"
+        )
 
     return check_plan_review_result
 
