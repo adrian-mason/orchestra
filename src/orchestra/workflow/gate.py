@@ -94,7 +94,7 @@ def create_decision_gate(
         id=f"dg-{uuid.uuid4().hex[:12]}",
         workflow_run_id=workflow_run_id,
         agent_id=agent_id,
-        gate_type=gate_type,
+        gate_type=gate_type,  # type: ignore[arg-type]
         status=DecisionGateStatus.PENDING,
         created_at=datetime.now(timezone.utc),
         context=context or {},
