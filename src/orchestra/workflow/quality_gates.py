@@ -9,6 +9,8 @@ Failure is blocking — causes the 4-phase loop to retry (not skip).
 
 from __future__ import annotations
 
+import os
+import shlex
 import subprocess
 from dataclasses import dataclass
 from typing import Any
@@ -56,15 +58,18 @@ class GateConfig:
 
     Attributes:
         name: Gate name (e.g. "test", "lint", "typecheck").
-        command: Shell command to execute.
+        command: Command to execute. Parsed via shlex.split() when shell=False.
         timeout_seconds: Maximum execution time before the gate is considered failed.
         working_dir: Working directory for command execution. None = cwd.
+        shell: If True (default), run command through the shell. If False,
+            use shlex.split() for safer execution without shell interpolation.
     """
 
     name: str
     command: str
     timeout_seconds: int = 300
     working_dir: str | None = None
+    shell: bool = True
 
 
 # Default gate configurations matching DESIGN.md §2.6
@@ -86,21 +91,24 @@ def run_single_gate(
     Args:
         gate: Gate configuration.
         working_dir: Override working directory (falls back to gate.working_dir).
-        env: Optional environment variables for the subprocess.
+        env: Optional environment variables merged with os.environ for the
+            subprocess. Overrides specific variables without losing PATH etc.
 
     Returns:
         GateResult with pass/fail status and captured output.
     """
     cwd = working_dir or gate.working_dir
+    merged_env = {**os.environ, **env} if env else None
+    cmd: str | list[str] = gate.command if gate.shell else shlex.split(gate.command)
     try:
         result = subprocess.run(
-            gate.command,
-            shell=True,
+            cmd,
+            shell=gate.shell,
             capture_output=True,
             text=True,
             timeout=gate.timeout_seconds,
             cwd=cwd,
-            env=env,
+            env=merged_env,
         )
         passed = result.returncode == 0
         output = result.stdout
