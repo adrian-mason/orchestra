@@ -79,9 +79,9 @@ def _mixed_verdict_content() -> str:
     """Build broadcast output where some reject."""
     verdicts = [
         _make_verdict_json("Product Manager", "APPROVED"),
-        _make_verdict_json("Architect Reviewer", "REJECTED"),
+        _make_verdict_json("Architect Reviewer", "NEEDS_REVISION"),
         _make_verdict_json("Security Expert", "APPROVED"),
-        _make_verdict_json("UX Expert", "REJECTED"),
+        _make_verdict_json("UX Expert", "NEEDS_REVISION"),
         _make_verdict_json("QA Expert", "APPROVED"),
     ]
     return "\n".join(f"```json\n{v}\n```" for v in verdicts)
@@ -172,7 +172,7 @@ class TestCheckDesignGate:
         )
         result = check_design_gate(si)
         assert "Review Feedback" in result.content
-        assert "REJECTED" in result.content
+        assert "NEEDS_REVISION" in result.content
 
     def test_detects_genuine_team_errors_ac06(self) -> None:
         error_content = (
@@ -248,7 +248,7 @@ class TestCheckDesignReviewResult:
         events_db = MagicMock()
         step_fn = create_check_design_review_result(events_db)
         verdicts_data = [
-            {"reviewer": "Architect", "verdict": "REJECTED",
+            {"reviewer": "Architect", "verdict": "NEEDS_REVISION",
              "reasoning": "Bad", "blockers": ["b1"], "suggestions": []},
         ]
         si = _make_step_input(
@@ -280,7 +280,7 @@ class TestCheckDesignReviewResult:
 class TestReviseDesignFromReview:
     def test_combines_design_and_feedback(self) -> None:
         si = _make_step_input(
-            previous_step_content="Security Expert: REJECTED. Missing auth.",
+            previous_step_content="Security Expert: NEEDS_REVISION. Missing auth.",
             session_state={
                 "latest_design_content": "Original design",
                 "design_review_round": 1,

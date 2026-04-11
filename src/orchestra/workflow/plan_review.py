@@ -52,7 +52,7 @@ class GateVerdict(BaseModel):
     reviewer: str = Field(description="Name of the reviewing agent")
     verdict: str = Field(
         description="Verdict outcome",
-        pattern=r"^(PASS|FAIL|APPROVED|REJECTED)$",
+        pattern=r"^(PASS|FAIL|APPROVED|NEEDS_REVISION|REJECTED)$",
     )
     reasoning: str = Field(default="", description="Explanation for the verdict")
     blockers: list[str] = Field(

@@ -6,7 +6,7 @@ This gate is the ONLY write point for session_state["approved_design"].
 
 Reuses GateVerdict, parse_verdicts(), and format_feedback() from
 orchestra.workflow.plan_review (P1-04) — same verdict model, different
-verdict values (APPROVED/REJECTED vs PASS/FAIL).
+verdict values (APPROVED/NEEDS_REVISION vs PASS/FAIL).
 
 Gate 0 Constraints:
 - AC-01: Loop exit via end_condition callable, never StepOutput(stop=True)
@@ -89,7 +89,7 @@ def create_design_review_team(db: SqliteDb) -> Any:
 
     verdict_instructions = (
         "Return your verdict as a JSON object:\n"
-        '{"reviewer": "<your role>", "verdict": "APPROVED" or "REJECTED",\n'
+        '{"reviewer": "<your role>", "verdict": "APPROVED" or "NEEDS_REVISION",\n'
         ' "reasoning": "...", "blockers": [...], "suggestions": [...]}'
     )
 
