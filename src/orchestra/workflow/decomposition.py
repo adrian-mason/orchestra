@@ -180,10 +180,12 @@ def decompose_work_units(step_input: StepInput) -> StepOutput:
     Session state reads:
         - approved_design: The design document approved by Design Review Gate
         - github_issues: Optional list of GitHub issue dicts
+        - strict_overlap: If True, raises on file scope overlap (default False)
 
     Session state writes:
         - work_units: List of WorkUnit dicts (serialized)
         - work_unit_count: Number of work units produced
+        - overlap_warnings: List of overlap warning strings (if any detected)
 
     Args:
         step_input: Agno StepInput with workflow session.
@@ -195,7 +197,8 @@ def decompose_work_units(step_input: StepInput) -> StepOutput:
         ValueError: If approved_design is missing or empty, or if
             decomposition produces invalid work units.
         CyclicDependencyError: If work unit dependencies contain a cycle.
-        FileOverlapError: If work unit file scopes overlap.
+        FileOverlapError: If work unit file scopes overlap and
+            strict_overlap is True in session_state.
     """
     # AC-03: Read from session_state, NOT previous_step_content
     approved_design = get_ss(step_input, "approved_design", "")
@@ -239,7 +242,12 @@ def decompose_work_units(step_input: StepInput) -> StepOutput:
 
     # Parse and validate
     work_units = parse_work_units(agent_content)
-    validate_no_overlap(work_units)
+    strict_overlap: bool = get_ss(step_input, "strict_overlap", False)
+    overlap_warnings = validate_no_overlap(work_units, strict=strict_overlap)
+    if overlap_warnings:
+        set_ss(step_input, "overlap_warnings", overlap_warnings)
+        for warning in overlap_warnings:
+            logger.warning("File scope overlap: %s", warning)
     validate_dag(work_units)
 
     # Store in session_state (AC-03)
