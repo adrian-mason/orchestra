@@ -489,3 +489,31 @@ class TestImplementPhaseFailure:
             result = run_four_phase_loop(wu)
 
         assert result.status == "escalated"
+
+
+class TestReviewPhaseFailure:
+    def test_reviewer_error_returns_failure(self) -> None:
+        """REVIEW must fail if reviewer agent has execution error."""
+        wu = _make_work_unit()
+        resolve_patch, inst_patch = _mock_model_resolution()
+
+        mock_reviewer = MagicMock()
+        mock_reviewer.name = "Reviewer1"
+        mock_result = MagicMock()
+        mock_result.content = "Traceback (most recent call last): File agent.py error"
+        mock_reviewer.run.return_value = mock_result
+
+        review_patch = patch(
+            "orchestra.workflow.four_phase_loop.create_fresh_adversarial_reviewers",
+            return_value=[mock_reviewer],
+        )
+
+        with resolve_patch, inst_patch, \
+             _mock_impl_success(), _mock_validate_success(), review_patch:
+            result = run_four_phase_loop(wu)
+
+        assert result.status == "escalated"
+        review_phases = [p for p in result.phases if p.phase == "REVIEW"]
+        assert len(review_phases) > 0
+        assert not review_phases[0].success
+        assert "error" in review_phases[0].details.get("error", "").lower()

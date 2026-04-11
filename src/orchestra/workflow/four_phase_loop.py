@@ -205,6 +205,14 @@ def _run_review_phase(
 
     combined_content = "\n\n".join(all_content)
 
+    if _is_genuine_error(combined_content):
+        return PhaseResult(
+            phase="REVIEW",
+            success=False,
+            output=combined_content[:2000],
+            details={"error": "Reviewer agent execution error detected"},
+        )
+
     verdicts = _parse_review_verdicts(combined_content)
     has_rejection = any(
         v.get("verdict") in ("REJECTED", "NEEDS_REVISION", "FAIL")
