@@ -6,7 +6,6 @@ Covers all 6 priority levels, edge cases, and failure paths.
 from __future__ import annotations
 
 import tempfile
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -564,7 +563,7 @@ class TestCreateFreshAdversarialReviewers:
 
         with patch("orchestra.model_resolver.instantiate_model", mock_instantiate), \
              patch("agno.agent.Agent", mock_agent):
-            reviewers = create_fresh_adversarial_reviewers("claude-sonnet-4-6")
+            create_fresh_adversarial_reviewers("claude-sonnet-4-6")
 
         names = [call.kwargs["name"] for call in mock_agent.call_args_list]
         assert len(set(names)) == 2  # unique

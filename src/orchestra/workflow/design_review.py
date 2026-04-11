@@ -151,7 +151,7 @@ def check_design_gate(step_input: StepInput) -> StepOutput:
     AC-03: Uses get_ss()/set_ss() for session state access.
     AC-06: Calls check_team_member_errors() on team output.
     """
-    content = step_input.previous_step_content
+    content: str = str(step_input.previous_step_content or "")
 
     # AC-06: Check for team member errors with false-positive filtering
     errors = check_team_member_errors(content, raise_on_error=False)

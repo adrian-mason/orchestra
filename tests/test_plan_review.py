@@ -266,7 +266,7 @@ class TestCheckPlanGate:
     def test_fail_sets_gate_not_passed(self) -> None:
         content = _make_mixed_content()
         si = _make_step_input(previous_step_content=content)
-        result = check_plan_gate(si)
+        check_plan_gate(si)
         ss = si.workflow_session.session_data["session_state"]
         assert ss["plan_gate_passed"] is False
 

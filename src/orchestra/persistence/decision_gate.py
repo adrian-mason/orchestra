@@ -9,7 +9,7 @@ from __future__ import annotations
 from agno.db.sqlite import SqliteDb
 from sqlalchemy import text
 
-from orchestra.models.decision_gate import DecisionGate, DecisionGateStatus
+from orchestra.models.decision_gate import DecisionGate
 
 
 # ── DDL ──

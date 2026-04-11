@@ -14,7 +14,6 @@ from sqlalchemy import text
 
 from orchestra.persistence.databases import (
     DatabaseSet,
-    _apply_events_schema,
     _enable_wal,
     execute_ddl,
     get_journal_mode,

@@ -72,7 +72,7 @@ class TestCreateDesignTeam:
             importlib.reload(dt_mod)
 
             db = MagicMock()
-            result = dt_mod.create_design_team(db)
+            dt_mod.create_design_team(db)
 
             mock_team_cls.assert_called_once()
             call_kwargs = mock_team_cls.call_args

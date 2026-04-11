@@ -12,7 +12,6 @@ from orchestra.models.work_unit import WorkUnit
 from orchestra.workflow.dag import (
     CyclicDependencyError,
     FileOverlapError,
-    WorkUnitDAG,
     build_dag,
     validate_dag,
     validate_no_overlap,
