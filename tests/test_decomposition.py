@@ -166,6 +166,24 @@ class TestParseWorkUnits:
         units = parse_work_units(content)
         assert len(units) == 2
 
+    def test_parse_raw_json_with_markdown_brackets(self) -> None:
+        """Bracket-counting ignores brackets inside markdown links after the array."""
+        json_array = _make_valid_units_json(1)
+        content = (
+            f"Here are the results:\n{json_array}\n\n"
+            "[See docs](https://example.com) for more [details]."
+        )
+        units = parse_work_units(content)
+        assert len(units) == 1
+
+    def test_parse_raw_json_with_brackets_in_strings(self) -> None:
+        """Brackets inside JSON string values don't break extraction."""
+        wu = _make_work_unit_dict(description="Handle [edge] cases in [auth]")
+        content = f"Output: {json.dumps([wu])}\n[Note: reviewed]"
+        units = parse_work_units(content)
+        assert len(units) == 1
+        assert "[edge]" in units[0].description
+
 
 # ---------------------------------------------------------------------------
 # decompose_work_units
@@ -373,3 +391,18 @@ class TestDecomposeWorkUnits:
         with agent_patch, model_patch as mock_model:
             decompose_work_units(si)
             mock_model.assert_called_once_with("claude-sonnet-4-6")
+
+    def test_raises_on_none_content(self) -> None:
+        """Agent returning None content must raise, not pass None to parser."""
+        _, model_patch = self._patch_agent("")
+        mock_result = MagicMock()
+        mock_result.content = None
+
+        si = _make_step_input(
+            session_state={"approved_design": "Design content"},
+        )
+
+        with patch("agno.agent.Agent") as mock_cls, model_patch:
+            mock_cls.return_value.run.return_value = mock_result
+            with pytest.raises(ValueError, match="empty content"):
+                decompose_work_units(si)
