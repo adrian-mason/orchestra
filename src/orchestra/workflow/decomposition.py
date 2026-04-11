@@ -26,7 +26,7 @@ from agno.workflow.types import StepInput, StepOutput
 from orchestra.model_resolver import instantiate_model
 from orchestra.models.work_unit import WorkUnit
 from orchestra.utils.session import get_ss, set_ss
-from orchestra.utils.team import check_team_member_errors
+from orchestra.utils.team import TeamMemberError, check_team_member_errors
 from orchestra.workflow.dag import validate_dag, validate_no_overlap
 
 logger = logging.getLogger(__name__)
@@ -235,8 +235,6 @@ def decompose_work_units(step_input: StepInput) -> StepOutput:
     # AC-06: Check for team member errors
     errors = check_team_member_errors(agent_content, raise_on_error=False)
     if errors and _is_genuine_team_error(errors):
-        from orchestra.utils.team import TeamMemberError
-
         raise TeamMemberError(errors)
 
     # Parse and validate
