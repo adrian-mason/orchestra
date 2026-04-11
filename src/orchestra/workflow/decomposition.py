@@ -26,7 +26,7 @@ from agno.workflow.types import StepInput, StepOutput
 from orchestra.model_resolver import instantiate_model
 from orchestra.models.work_unit import WorkUnit
 from orchestra.utils.session import get_ss, set_ss
-from orchestra.utils.team import TeamMemberError, check_team_member_errors
+from orchestra.utils.team import TeamMemberError, check_team_member_errors, is_genuine_team_error
 from orchestra.workflow.dag import validate_dag, validate_no_overlap
 
 logger = logging.getLogger(__name__)
@@ -152,23 +152,6 @@ def parse_work_units(content: str) -> list[WorkUnit]:
     return work_units
 
 
-def _is_genuine_team_error(errors: list[str]) -> bool:
-    """Filter check_team_member_errors results for genuine failures.
-
-    Same heuristic as P1-03/P1-04/P1-05. Bare mentions of 'Error' in
-    decomposer output are legitimate and should not trigger AC-06 rejection.
-    """
-    for err_context in errors:
-        lower = err_context.lower()
-        if "traceback (most recent call last)" in lower:
-            return True
-        if "error occurred during execution" in lower:
-            return True
-        if "member" in lower and "failed" in lower:
-            return True
-    return False
-
-
 def decompose_work_units(step_input: StepInput) -> StepOutput:
     """Decompose approved design into a validated WorkUnit DAG.
 
@@ -237,7 +220,7 @@ def decompose_work_units(step_input: StepInput) -> StepOutput:
 
     # AC-06: Check for team member errors
     errors = check_team_member_errors(agent_content, raise_on_error=False)
-    if errors and _is_genuine_team_error(errors):
+    if errors and is_genuine_team_error(errors):
         raise TeamMemberError(errors)
 
     # Parse and validate

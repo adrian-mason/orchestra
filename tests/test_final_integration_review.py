@@ -12,9 +12,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from orchestra.utils.team import has_genuine_error
 from orchestra.workflow.final_integration_review import (
     _build_integration_prompt,
-    _is_genuine_error,
     _parse_integration_verdicts,
     create_check_integration_result,
     final_integration_review,
@@ -226,18 +226,18 @@ class TestParseIntegrationVerdicts:
 
 
 # ---------------------------------------------------------------------------
-# _is_genuine_error
+# has_genuine_error
 # ---------------------------------------------------------------------------
 
 class TestIsGenuineError:
     def test_traceback_is_genuine(self) -> None:
-        assert _is_genuine_error("Traceback (most recent call last): something")
+        assert has_genuine_error("Traceback (most recent call last): something")
 
     def test_normal_content_not_error(self) -> None:
-        assert not _is_genuine_error("The implementation looks correct")
+        assert not has_genuine_error("The implementation looks correct")
 
     def test_empty_not_error(self) -> None:
-        assert not _is_genuine_error("")
+        assert not has_genuine_error("")
 
 
 # ---------------------------------------------------------------------------

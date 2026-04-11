@@ -27,7 +27,7 @@ from agno.workflow.types import StepInput, StepOutput
 
 from orchestra.model_resolver import instantiate_model
 from orchestra.utils.session import get_ss, set_ss
-from orchestra.utils.team import check_team_member_errors
+from orchestra.utils.team import check_team_member_errors, is_genuine_team_error
 from orchestra.workflow.gate import create_decision_gate
 from orchestra.workflow.plan_review import (
     GateVerdict,
@@ -39,24 +39,6 @@ if TYPE_CHECKING:
     from agno.db.sqlite import SqliteDb
 
 logger = logging.getLogger(__name__)
-
-
-def _is_genuine_team_error(errors: list[str]) -> bool:
-    """Filter check_team_member_errors results for genuine failures.
-
-    Same heuristic as P1-03/P1-04. Bare mentions of 'Error' in expert
-    feedback (e.g., "Error handling needs improvement") are legitimate
-    and should not trigger AC-06 rejection.
-    """
-    for err_context in errors:
-        lower = err_context.lower()
-        if "traceback (most recent call last)" in lower:
-            return True
-        if "error occurred during execution" in lower:
-            return True
-        if "member" in lower and "failed" in lower:
-            return True
-    return False
 
 
 # ---------------------------------------------------------------------------
@@ -173,7 +155,7 @@ def check_design_gate(step_input: StepInput) -> StepOutput:
 
     # AC-06: Check for team member errors with false-positive filtering
     errors = check_team_member_errors(content, raise_on_error=False)
-    if errors and _is_genuine_team_error(errors):
+    if errors and is_genuine_team_error(errors):
         from orchestra.utils.team import TeamMemberError
         raise TeamMemberError(errors)
 

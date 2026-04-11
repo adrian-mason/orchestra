@@ -28,7 +28,7 @@ from orchestra.model_resolver import (
     resolve_model,
 )
 from orchestra.utils.session import get_ss, set_ss
-from orchestra.utils.team import check_team_member_errors
+from orchestra.utils.team import has_genuine_error
 from orchestra.workflow.gate import create_decision_gate
 from orchestra.workflow.plan_review import GateVerdict, format_feedback
 from orchestra.workflow.quality_gates import run_quality_gates
@@ -42,22 +42,6 @@ _JSON_VERDICT_RE = re.compile(
     r"\{[^{}]*\"verdict\"\s*:\s*\"[^\"]+\"[^{}]*\}",
     re.DOTALL,
 )
-
-
-def _is_genuine_error(content: str) -> bool:
-    """Check if content contains genuine execution errors (not domain discussion)."""
-    errors = check_team_member_errors(content, raise_on_error=False)
-    if not errors:
-        return False
-    for err in errors:
-        lower = err.lower()
-        if "traceback (most recent call last)" in lower:
-            return True
-        if "error occurred during execution" in lower:
-            return True
-        if "member" in lower and "failed" in lower:
-            return True
-    return False
 
 
 def _build_integration_prompt(
@@ -195,7 +179,7 @@ def final_integration_review(step_input: StepInput) -> StepOutput:
 
     combined_content = "\n\n".join(all_content)
 
-    if _is_genuine_error(combined_content):
+    if has_genuine_error(combined_content):
         logger.warning("Integration reviewer execution error detected")
         set_ss(step_input, "integration_gate_passed", False)
         set_ss(step_input, "integration_gate_verdicts", [])
