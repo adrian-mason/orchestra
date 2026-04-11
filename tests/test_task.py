@@ -9,14 +9,10 @@ from __future__ import annotations
 import pytest
 
 from orchestra.models.task import (
-    Artifact,
-    CodeSkeleton,
     CommitSpec,
     Convergence,
     ExecutionMeta,
     ImplementationStep,
-    Inherited,
-    PreAnalysisStep,
     Rationale,
     Risk,
     Task,

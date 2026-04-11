@@ -16,8 +16,6 @@ import pytest
 from orchestra.workflow.quality_gates import (
     DEFAULT_GATES,
     GateConfig,
-    GateResult,
-    QualityGateResult,
     run_quality_gates,
     run_single_gate,
 )

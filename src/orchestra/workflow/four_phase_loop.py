@@ -106,7 +106,7 @@ def _run_implement_phase(
             f"## Description\n{work_unit.description}\n\n"
             f"## Definition of Done\n"
             + "\n".join(f"- {item}" for item in work_unit.dod)
-            + f"\n\n## File Scope\n"
+            + "\n\n## File Scope\n"
             + "\n".join(f"- {f}" for f in work_unit.file_scope)
         ],
     )
