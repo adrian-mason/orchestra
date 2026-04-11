@@ -100,7 +100,7 @@ def _mock_review_success():
     mock_reviewer = MagicMock()
     mock_reviewer.name = "Reviewer1"
     mock_result = MagicMock()
-    mock_result.content = '{"verdict": "APPROVED", "blockers": [], "reasoning": "LGTM"}'
+    mock_result.content = '{"reviewer": "Reviewer1", "verdict": "APPROVED", "blockers": [], "reasoning": "LGTM"}'
     mock_reviewer.run.return_value = mock_result
     return patch(
         "orchestra.workflow.four_phase_loop.create_fresh_adversarial_reviewers",
@@ -113,7 +113,7 @@ def _mock_review_rejection():
     mock_reviewer = MagicMock()
     mock_reviewer.name = "Reviewer1"
     mock_result = MagicMock()
-    mock_result.content = '{"verdict": "REJECTED", "blockers": ["Missing tests"], "reasoning": "Incomplete"}'
+    mock_result.content = '{"reviewer": "Reviewer1", "verdict": "REJECTED", "blockers": ["Missing tests"], "reasoning": "Incomplete"}'
     mock_reviewer.run.return_value = mock_result
     return patch(
         "orchestra.workflow.four_phase_loop.create_fresh_adversarial_reviewers",
@@ -412,3 +412,80 @@ class TestExecuteWorkUnits:
         # wu-001 and wu-002 must both execute before wu-003
         assert execution_order.index("wu-001") < execution_order.index("wu-003")
         assert execution_order.index("wu-002") < execution_order.index("wu-003")
+
+    def test_blocks_units_with_escalated_dependencies(self) -> None:
+        """Units whose deps failed should be blocked, not executed."""
+        units = [
+            _make_work_unit_dict(id="wu-001"),
+            _make_work_unit_dict(id="wu-002", dependencies=["wu-001"]),
+        ]
+        si = _make_step_input(session_state={"work_units": units})
+
+        with self._mock_four_phase(statuses={"wu-001": "escalated"}):
+            execute_work_units(si)
+
+        ss = si.workflow_session.session_data["session_state"]
+        results = {r["unit_id"]: r["status"] for r in ss["execution_results"]}
+        assert results["wu-001"] == "escalated"
+        assert results["wu-002"] == "blocked"
+        assert set(ss["escalated_units"]) == {"wu-001", "wu-002"}
+
+    def test_serialized_results_include_last_failed_phase(self) -> None:
+        """Serialization should include the last failed phase."""
+        units = [_make_work_unit_dict(id="wu-001")]
+        si = _make_step_input(session_state={"work_units": units})
+
+        failed_result = UnitResult(
+            unit_id="wu-001",
+            status="escalated",
+            attempts=3,
+            phases=[
+                PhaseResult(phase="IMPLEMENT", success=True, output="ok"),
+                PhaseResult(phase="VALIDATE", success=False, output="lint failed"),
+            ],
+        )
+
+        with patch("orchestra.workflow.four_phase_loop.run_four_phase_loop",
+                   return_value=failed_result):
+            execute_work_units(si)
+
+        ss = si.workflow_session.session_data["session_state"]
+        last_failed = ss["execution_results"][0]["last_failed_phase"]
+        assert last_failed is not None
+        assert last_failed["phase"] == "VALIDATE"
+        assert "lint failed" in last_failed["output"]
+
+
+# ---------------------------------------------------------------------------
+# IMPLEMENT phase failure (BLOCKER #2)
+# ---------------------------------------------------------------------------
+
+
+class TestImplementPhaseFailure:
+    def test_empty_content_returns_failure(self) -> None:
+        """IMPLEMENT must fail if agent returns empty content."""
+        wu = _make_work_unit()
+        resolve_patch, inst_patch = _mock_model_resolution()
+
+        mock_result = MagicMock()
+        mock_result.content = None
+
+        with resolve_patch, inst_patch,              patch("agno.agent.Agent") as mock_cls,              _mock_validate_success(), _mock_review_success():
+            mock_cls.return_value.run.return_value = mock_result
+            result = run_four_phase_loop(wu)
+
+        assert result.status == "escalated"
+
+    def test_error_content_returns_failure(self) -> None:
+        """IMPLEMENT must fail on genuine execution errors."""
+        wu = _make_work_unit()
+        resolve_patch, inst_patch = _mock_model_resolution()
+
+        mock_result = MagicMock()
+        mock_result.content = "Traceback (most recent call last): File agent.py error"
+
+        with resolve_patch, inst_patch,              patch("agno.agent.Agent") as mock_cls,              _mock_validate_success(), _mock_review_success():
+            mock_cls.return_value.run.return_value = mock_result
+            result = run_four_phase_loop(wu)
+
+        assert result.status == "escalated"
