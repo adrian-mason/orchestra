@@ -72,7 +72,7 @@ def create_design_review_team(db: SqliteDb) -> Any:
 
     5 domain expert reviewers from different providers:
     - Product Manager (Gemini) — requirements alignment
-    - Architect (Claude Opus) — structural soundness
+    - Architect (Claude Sonnet) — structural soundness
     - Security Expert (OpenAI) — threat modeling
     - UX Expert (Claude Haiku) — usability
     - QA Expert (Gemini) — testability
