@@ -304,7 +304,8 @@ class TestDecomposeWorkUnits:
             call_args = mock_agent_cls.return_value.run.call_args[0][0]
             assert "GitHub Issues" not in call_args
 
-    def test_calls_validate_no_overlap(self) -> None:
+    def test_calls_validate_no_overlap_with_warning_mode(self) -> None:
+        """Default: validate_no_overlap called with strict=False."""
         valid_json = _make_valid_units_json(2)
         agent_patch, model_patch = self._patch_agent(valid_json)
 
@@ -313,12 +314,14 @@ class TestDecomposeWorkUnits:
         )
 
         with agent_patch, model_patch, \
-             patch("orchestra.workflow.decomposition.validate_no_overlap") as mock_overlap:
+             patch("orchestra.workflow.decomposition.validate_no_overlap",
+                   return_value=[]) as mock_overlap:
             decompose_work_units(si)
             mock_overlap.assert_called_once()
             units = mock_overlap.call_args[0][0]
             assert len(units) == 2
             assert all(isinstance(u, WorkUnit) for u in units)
+            assert mock_overlap.call_args[1]["strict"] is False
 
     def test_calls_validate_dag(self) -> None:
         valid_json = _make_valid_units_json(2)
@@ -333,7 +336,44 @@ class TestDecomposeWorkUnits:
             decompose_work_units(si)
             mock_dag.assert_called_once()
 
-    def test_propagates_overlap_error(self) -> None:
+    def test_propagates_overlap_error_in_strict_mode(self) -> None:
+        """strict_overlap=True in session_state causes FileOverlapError."""
+        valid_json = _make_valid_units_json(2)
+        agent_patch, model_patch = self._patch_agent(valid_json)
+
+        si = _make_step_input(
+            session_state={
+                "approved_design": "Design content",
+                "strict_overlap": True,
+            },
+        )
+
+        with agent_patch, model_patch, \
+             patch("orchestra.workflow.decomposition.validate_no_overlap",
+                   side_effect=FileOverlapError("Overlap detected")):
+            with pytest.raises(FileOverlapError, match="Overlap detected"):
+                decompose_work_units(si)
+
+    def test_overlap_warnings_stored_in_session_state(self) -> None:
+        """Warning mode stores overlap messages in session_state."""
+        valid_json = _make_valid_units_json(2)
+        agent_patch, model_patch = self._patch_agent(valid_json)
+
+        warnings = ["Pattern 'src/*.py' claimed by both wu-001 and wu-002"]
+        si = _make_step_input(
+            session_state={"approved_design": "Design content"},
+        )
+
+        with agent_patch, model_patch, \
+             patch("orchestra.workflow.decomposition.validate_no_overlap",
+                   return_value=warnings):
+            decompose_work_units(si)
+
+        ss = si.workflow_session.session_data["session_state"]
+        assert ss["overlap_warnings"] == warnings
+
+    def test_no_overlap_warnings_key_when_clean(self) -> None:
+        """No overlap_warnings key set when validation is clean."""
         valid_json = _make_valid_units_json(2)
         agent_patch, model_patch = self._patch_agent(valid_json)
 
@@ -343,9 +383,44 @@ class TestDecomposeWorkUnits:
 
         with agent_patch, model_patch, \
              patch("orchestra.workflow.decomposition.validate_no_overlap",
-                   side_effect=FileOverlapError("Overlap detected")):
-            with pytest.raises(FileOverlapError, match="Overlap detected"):
-                decompose_work_units(si)
+                   return_value=[]):
+            decompose_work_units(si)
+
+        ss = si.workflow_session.session_data["session_state"]
+        assert "overlap_warnings" not in ss
+
+    def test_strict_overlap_defaults_to_false(self) -> None:
+        """Without strict_overlap in session_state, uses warning mode."""
+        valid_json = _make_valid_units_json(2)
+        agent_patch, model_patch = self._patch_agent(valid_json)
+
+        si = _make_step_input(
+            session_state={"approved_design": "Design content"},
+        )
+
+        with agent_patch, model_patch, \
+             patch("orchestra.workflow.decomposition.validate_no_overlap",
+                   return_value=[]) as mock_overlap:
+            decompose_work_units(si)
+            assert mock_overlap.call_args[1]["strict"] is False
+
+    def test_strict_overlap_true_passes_strict(self) -> None:
+        """strict_overlap=True in session_state passes strict=True."""
+        valid_json = _make_valid_units_json(2)
+        agent_patch, model_patch = self._patch_agent(valid_json)
+
+        si = _make_step_input(
+            session_state={
+                "approved_design": "Design content",
+                "strict_overlap": True,
+            },
+        )
+
+        with agent_patch, model_patch, \
+             patch("orchestra.workflow.decomposition.validate_no_overlap",
+                   return_value=[]) as mock_overlap:
+            decompose_work_units(si)
+            assert mock_overlap.call_args[1]["strict"] is True
 
     def test_propagates_cycle_error(self) -> None:
         valid_json = _make_valid_units_json(2)
