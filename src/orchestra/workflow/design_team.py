@@ -25,7 +25,7 @@ from agno.workflow.types import StepInput, StepOutput
 from orchestra.agents.factory import create_member_factory
 from orchestra.model_resolver import instantiate_model
 from orchestra.utils.session import get_ss, set_ss
-from orchestra.utils.team import check_team_member_errors
+from orchestra.utils.team import check_team_member_errors, is_genuine_team_error
 
 if TYPE_CHECKING:
     from agno.db.sqlite import SqliteDb
@@ -33,26 +33,6 @@ if TYPE_CHECKING:
     from orchestra.model_resolver import ModelsConfig
 
 logger = logging.getLogger(__name__)
-
-
-def _is_genuine_team_error(errors: list[str]) -> bool:
-    """Filter check_team_member_errors results for genuine failures.
-
-    Bare mentions of 'Error' or 'Exception' in design content (e.g.,
-    'Error handling should use Result types') are legitimate and should
-    not trigger AC-06 rejection. Only raise when patterns match actual
-    Agno error-as-content injection (Python tracebacks, member failure
-    messages).
-    """
-    for err_context in errors:
-        lower = err_context.lower()
-        if 'traceback (most recent call last)' in lower:
-            return True
-        if 'error occurred during execution' in lower:
-            return True
-        if 'member' in lower and 'failed' in lower:
-            return True
-    return False
 
 
 # ---------------------------------------------------------------------------
@@ -129,7 +109,7 @@ def persist_design_output(step_input: StepInput) -> StepOutput:
     # false positives on design content that legitimately discusses
     # errors (e.g., 'Error handling should use Result types').
     errors = check_team_member_errors(design_content, raise_on_error=False)
-    if errors and _is_genuine_team_error(errors):
+    if errors and is_genuine_team_error(errors):
         from orchestra.utils.team import TeamMemberError
 
         raise TeamMemberError(errors)

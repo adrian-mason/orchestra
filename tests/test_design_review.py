@@ -6,7 +6,7 @@ Covers:
 - design_review_approved: end_condition for review loop (AC-01)
 - create_check_design_review_result: closure factory for post-Loop decision gate (AC-04)
 - revise_design_from_review: revision prompt generation
-- _is_genuine_team_error: false-positive filtering
+- is_genuine_team_error: false-positive filtering
 
 GateVerdict, parse_verdicts(), format_feedback() are from P1-04 (plan_review.py)
 and tested in test_plan_review.py.
@@ -21,8 +21,8 @@ import pytest
 
 from agno.workflow.types import StepOutput
 
+from orchestra.utils.team import is_genuine_team_error
 from orchestra.workflow.design_review import (
-    _is_genuine_team_error,
     check_design_gate,
     create_check_design_review_result,
     design_review_approved,
@@ -88,25 +88,25 @@ def _mixed_verdict_content() -> str:
 
 
 # ---------------------------------------------------------------------------
-# _is_genuine_team_error
+# is_genuine_team_error
 # ---------------------------------------------------------------------------
 
 
 class TestIsGenuineTeamError:
     def test_traceback_is_genuine(self) -> None:
         errors = ["Traceback (most recent call last): File test.py"]
-        assert _is_genuine_team_error(errors) is True
+        assert is_genuine_team_error(errors) is True
 
     def test_member_failed_is_genuine(self) -> None:
         errors = ["member QA Expert failed during execution"]
-        assert _is_genuine_team_error(errors) is True
+        assert is_genuine_team_error(errors) is True
 
     def test_bare_error_not_genuine(self) -> None:
         errors = ["Error handling needs improvement in the design"]
-        assert _is_genuine_team_error(errors) is False
+        assert is_genuine_team_error(errors) is False
 
     def test_empty_not_genuine(self) -> None:
-        assert _is_genuine_team_error([]) is False
+        assert is_genuine_team_error([]) is False
 
 
 # ---------------------------------------------------------------------------

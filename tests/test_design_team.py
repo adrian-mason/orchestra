@@ -4,7 +4,7 @@ Covers:
 - create_design_team: TeamMode.coordinate, db= required
 - persist_design_output: writes to session_state, validates content, AC-06 error check
 - revise_design_from_feedback: reads current design, structures revision prompt
-- _is_genuine_team_error: false-positive filtering for design content
+- is_genuine_team_error: false-positive filtering for design content
 
 Factory logic (resolve_design_members, create_member_factory, SpecialistMapping)
 is tested in test_callable_factory.py (P1-02). This module tests only the
@@ -20,8 +20,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from orchestra.utils.team import is_genuine_team_error
 from orchestra.workflow.design_team import (
-    _is_genuine_team_error,
     persist_design_output,
     revise_design_from_feedback,
 )
@@ -91,7 +91,7 @@ class TestCreateDesignTeam:
 
 
 # ---------------------------------------------------------------------------
-# _is_genuine_team_error (false-positive filtering)
+# is_genuine_team_error (false-positive filtering)
 # ---------------------------------------------------------------------------
 
 
@@ -100,27 +100,27 @@ class TestIsGenuineTeamError:
         errors = [
             "some context Traceback (most recent call last): more context"
         ]
-        assert _is_genuine_team_error(errors) is True
+        assert is_genuine_team_error(errors) is True
 
     def test_member_failed_is_genuine(self) -> None:
         errors = ["member Specialist-1 failed during execution"]
-        assert _is_genuine_team_error(errors) is True
+        assert is_genuine_team_error(errors) is True
 
     def test_error_occurred_during_execution_is_genuine(self) -> None:
         errors = ["Error occurred during execution of agent"]
-        assert _is_genuine_team_error(errors) is True
+        assert is_genuine_team_error(errors) is True
 
     def test_bare_error_word_is_not_genuine(self) -> None:
         """Design docs discussing error handling should NOT trigger."""
         errors = ["Error handling should use Result types"]
-        assert _is_genuine_team_error(errors) is False
+        assert is_genuine_team_error(errors) is False
 
     def test_bare_exception_word_is_not_genuine(self) -> None:
         errors = ["Exception propagation strategy for API calls"]
-        assert _is_genuine_team_error(errors) is False
+        assert is_genuine_team_error(errors) is False
 
     def test_empty_errors_not_genuine(self) -> None:
-        assert _is_genuine_team_error([]) is False
+        assert is_genuine_team_error([]) is False
 
     def test_mixed_genuine_and_false_positive(self) -> None:
         """If any error is genuine, the whole set is genuine."""
@@ -128,7 +128,7 @@ class TestIsGenuineTeamError:
             "Error handling should use Result types",
             "Traceback (most recent call last): File test.py",
         ]
-        assert _is_genuine_team_error(errors) is True
+        assert is_genuine_team_error(errors) is True
 
 
 # ---------------------------------------------------------------------------

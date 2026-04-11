@@ -81,3 +81,34 @@ def check_team_member_errors(
         raise TeamMemberError(unique_errors)
 
     return unique_errors
+
+
+def is_genuine_team_error(errors: list[str]) -> bool:
+    """Filter check_team_member_errors() results for genuine Agno failures.
+
+    Bare mentions of 'Error' in agent output (e.g. "Error handling should
+    use Result types") are legitimate domain discussion and should not
+    trigger AC-06 rejection. Only returns True for patterns that indicate
+    actual Agno error-as-content injection.
+    """
+    for err_context in errors:
+        lower = err_context.lower()
+        if "traceback (most recent call last)" in lower:
+            return True
+        if "error occurred during execution" in lower:
+            return True
+        if "member" in lower and "failed" in lower:
+            return True
+    return False
+
+
+def has_genuine_error(content: str) -> bool:
+    """Check if content contains genuine execution errors (not domain discussion).
+
+    Convenience wrapper: runs check_team_member_errors() then applies
+    is_genuine_team_error() heuristic filtering.
+    """
+    errors = check_team_member_errors(content, raise_on_error=False)
+    if not errors:
+        return False
+    return is_genuine_team_error(errors)

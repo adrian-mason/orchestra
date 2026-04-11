@@ -31,7 +31,7 @@ from orchestra.model_resolver import (
 )
 from orchestra.models.work_unit import WorkUnit
 from orchestra.utils.session import get_ss, set_ss
-from orchestra.utils.team import check_team_member_errors
+from orchestra.utils.team import has_genuine_error
 from orchestra.workflow.dag import WorkUnitDAG, build_dag
 from orchestra.workflow.quality_gates import QualityGateResult, run_quality_gates
 
@@ -64,22 +64,6 @@ class UnitResult:
     attempts: int = 0
     phases: list[PhaseResult] = field(default_factory=list)
     assigned_model: str | None = None
-
-
-def _is_genuine_error(content: str) -> bool:
-    """Check if content contains genuine execution errors (not domain discussion)."""
-    errors = check_team_member_errors(content, raise_on_error=False)
-    if not errors:
-        return False
-    for err in errors:
-        lower = err.lower()
-        if "traceback (most recent call last)" in lower:
-            return True
-        if "error occurred during execution" in lower:
-            return True
-        if "member" in lower and "failed" in lower:
-            return True
-    return False
 
 
 def _parse_review_verdicts(content: str) -> list[dict[str, Any]]:
@@ -136,7 +120,7 @@ def _run_implement_phase(
             output="Implementer returned empty content",
         )
 
-    if _is_genuine_error(content):
+    if has_genuine_error(content):
         return PhaseResult(
             phase="IMPLEMENT",
             success=False,
@@ -205,7 +189,7 @@ def _run_review_phase(
 
     combined_content = "\n\n".join(all_content)
 
-    if _is_genuine_error(combined_content):
+    if has_genuine_error(combined_content):
         return PhaseResult(
             phase="REVIEW",
             success=False,
