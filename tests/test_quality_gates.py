@@ -109,6 +109,35 @@ class TestRunSingleGate:
         with pytest.raises(AttributeError):
             result.passed = False  # type: ignore[misc]
 
+    def test_env_merges_with_os_environ(self):
+        gate = GateConfig(name="env", command="env")
+        result = run_single_gate(gate, env={"MY_TEST_VAR": "hello123"})
+        assert result.passed is True
+        assert "MY_TEST_VAR=hello123" in result.output
+        assert "PATH=" in result.output
+
+    def test_env_none_inherits_environ(self):
+        gate = GateConfig(name="env", command="env")
+        result = run_single_gate(gate, env=None)
+        assert result.passed is True
+        assert "PATH=" in result.output
+
+    def test_shell_false_simple_command(self):
+        gate = GateConfig(name="echo", command="echo hello", shell=False)
+        result = run_single_gate(gate)
+        assert result.passed is True
+        assert "hello" in result.output
+
+    def test_shell_false_with_args(self):
+        gate = GateConfig(name="echo", command="echo -n test_value", shell=False)
+        result = run_single_gate(gate)
+        assert result.passed is True
+        assert "test_value" in result.output
+
+    def test_shell_true_default(self):
+        gate = GateConfig(name="echo", command="echo ok")
+        assert gate.shell is True
+
 
 class TestRunQualityGates:
     def test_all_pass(self):
